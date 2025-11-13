@@ -1,0 +1,27 @@
+# node_modules בכל הפרויקט
+node_modules/
+
+# Expo
+.expo/
+
+# Build outputs
+dist/
+web-build/
+
+# Native build folders (אם יהיו בהמשך)
+android/
+ios/
+
+# קבצי env (גם ב-app וגם ב-api)
+.env
+.env.*
+*.env
+
+# לוגים
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# מערכת
+.DS_Store
+Thumbs.db
