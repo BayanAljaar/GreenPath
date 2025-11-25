@@ -1,6 +1,8 @@
-import { StyleSheet, Text, View, TextInput, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, TextInput, ScrollView, TouchableOpacity } from 'react-native';
+import { router } from 'expo-router';
 
 export default function HomeScreen() {
+ 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.logo}>Guide to GreenPath</Text>
@@ -18,31 +20,76 @@ export default function HomeScreen() {
       />
 
       <Text style={styles.label}>מדינות פופולריות</Text>
-      <View style={styles.cardsRow}>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🇹🇷 טורקיה</Text>
-          <Text style={styles.cardText}>איסטנבול, אנטליה, קפדוקיה</Text>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🇬🇷 יוון</Text>
-          <Text style={styles.cardText}>אתונה, סנטוריני, רודוס</Text>
-        </View>
-      </View>
 
-      <View style={styles.cardsRow}>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🇮🇹 איטליה</Text>
-          <Text style={styles.cardText}>רומא, ונציה, מילאנו</Text>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🇫🇷 צרפת</Text>
-          <Text style={styles.cardText}>פריז, ניס, מרסיי</Text>
-        </View>
-      </View>
+  {/* ROW 1 */}
+<View style={styles.cardsRow}>
 
-      <Text style={styles.hint}>
-        בהמשך נוסיף כאן חיפוש אמיתי מכל העולם, מסלולים, מפה, קול וחוויות משתמש 💚
-      </Text>
+  {/* טורקיה */}
+  <TouchableOpacity
+    style={styles.card}
+    onPress={() =>
+      router.push({
+        pathname: "/country/[code]",
+        params: { code: "turkey" },
+      })
+    }
+  >
+    <Text style={styles.cardTitle}>🇹🇷 טורקיה</Text>
+    <Text style={styles.cardText}>איסטנבול, אנטליה, קפדוקיה</Text>
+  </TouchableOpacity>
+
+  {/* יוון */}
+  <TouchableOpacity
+    style={styles.card}
+    onPress={() =>
+      router.push({
+        pathname: "/country/[code]",
+        params: { code: "greece" },
+      })
+    }
+  >
+    <Text style={styles.cardTitle}>🇬🇷 יוון</Text>
+    <Text style={styles.cardText}>אתונה, סנטוריני, רודוס</Text>
+  </TouchableOpacity>
+
+</View>
+
+
+{/* ROW 2 */}
+<View style={styles.cardsRow}>
+
+  {/* איטליה */}
+  <TouchableOpacity
+    style={styles.card}
+    onPress={() =>
+      router.push({
+        pathname: "/country/[code]",
+        params: { code: "italy" },
+      })
+    }
+  >
+    <Text style={styles.cardTitle}>🇮🇹 איטליה</Text>
+    <Text style={styles.cardText}>רומא, ונציה, מילאנו</Text>
+  </TouchableOpacity>
+
+  {/* צרפת */}
+  <TouchableOpacity
+    style={styles.card}
+    onPress={() =>
+      router.push({
+        pathname: "/country/[code]",
+        params: { code: "france" },
+      })
+    }
+  >
+    <Text style={styles.cardTitle}>🇫🇷 צרפת</Text>
+    <Text style={styles.cardText}>פריז, ניס, מרסיי</Text>
+  </TouchableOpacity>
+
+</View>
+
+
+      
     </ScrollView>
   );
 }
@@ -84,7 +131,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
-    textAlign: 'left', // כדי להקליד באנגלית נוח
+    textAlign: 'left',
     backgroundColor: '#fff',
   },
   cardsRow: {
@@ -97,8 +144,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     padding: 12,
     borderRadius: 12,
-    elevation: 2, // אנדרואיד
-    shadowColor: '#000', // iOS
+    elevation: 2,
+    shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 6,
   },
