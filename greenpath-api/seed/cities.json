@@ -1,0 +1,74 @@
+[
+  {
+    "name": "Istanbul",
+    "countryCode": "TR",
+    "description": "A vibrant city that sits between Europe and Asia, famous for culture, food, and historic landmarks.",
+    "mainLanguage": "Turkish",
+    "currency": "TRY",
+    "location": { "lat": 41.0082, "lng": 28.9784 },
+    "tags": ["culture", "food", "history", "shopping"]
+  },
+  {
+    "name": "Antalya",
+    "countryCode": "TR",
+    "description": "A popular Mediterranean resort city known for beaches, old towns, and resorts.",
+    "mainLanguage": "Turkish",
+    "currency": "TRY",
+    "location": { "lat": 36.8969, "lng": 30.7133 },
+    "tags": ["beach", "family", "relax", "nature"]
+  },
+  {
+    "name": "Tel Aviv",
+    "countryCode": "IL",
+    "description": "A modern coastal city known for nightlife, beaches, and food culture.",
+    "mainLanguage": "Hebrew",
+    "currency": "ILS",
+    "location": { "lat": 32.0853, "lng": 34.7818 },
+    "tags": ["nightlife", "beach", "food", "culture"]
+  },
+  {
+    "name": "Jerusalem",
+    "countryCode": "IL",
+    "description": "A holy and ancient city central to major religions, offering unique cultural experiences.",
+    "mainLanguage": "Hebrew",
+    "currency": "ILS",
+    "location": { "lat": 31.7683, "lng": 35.2137 },
+    "tags": ["history", "culture", "religion"]
+  },
+  {
+    "name": "Athens",
+    "countryCode": "GR",
+    "description": "The historic capital of Greece, full of ancient monuments and Mediterranean vibes.",
+    "mainLanguage": "Greek",
+    "currency": "EUR",
+    "location": { "lat": 37.9838, "lng": 23.7275 },
+    "tags": ["history", "culture", "food"]
+  },
+  {
+    "name": "Rome",
+    "countryCode": "IT",
+    "description": "The Eternal City famous for ancient architecture, museums, and amazing Italian cuisine.",
+    "mainLanguage": "Italian",
+    "currency": "EUR",
+    "location": { "lat": 41.9028, "lng": 12.4964 },
+    "tags": ["history", "food", "culture"]
+  },
+  {
+    "name": "Paris",
+    "countryCode": "FR",
+    "description": "The city of love, fashion, art, and world-famous landmarks.",
+    "mainLanguage": "French",
+    "currency": "EUR",
+    "location": { "lat": 48.8566, "lng": 2.3522 },
+    "tags": ["romantic", "food", "culture", "art"]
+  },
+  {
+    "name": "Bangkok",
+    "countryCode": "TH",
+    "description": "A lively city with temples, street food, markets, and nightlife.",
+    "mainLanguage": "Thai",
+    "currency": "THB",
+    "location": { "lat": 13.7563, "lng": 100.5018 },
+    "tags": ["food", "nightlife", "culture"]
+  }
+]

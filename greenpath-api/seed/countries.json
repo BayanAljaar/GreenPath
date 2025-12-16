@@ -1,0 +1,66 @@
+[
+  {
+    "code": "TR",
+    "name": "Turkey",
+    "region": "Europe / Asia",
+    "mainLanguage": "Turkish",
+    "currency": "TRY",
+    "flag": "🇹🇷"
+  },
+  {
+    "code": "IL",
+    "name": "Israel",
+    "region": "Middle East",
+    "mainLanguage": "Hebrew",
+    "currency": "ILS",
+    "flag": "🇮🇱"
+  },
+  {
+    "code": "GR",
+    "name": "Greece",
+    "region": "Europe",
+    "mainLanguage": "Greek",
+    "currency": "EUR",
+    "flag": "🇬🇷"
+  },
+  {
+    "code": "IT",
+    "name": "Italy",
+    "region": "Europe",
+    "mainLanguage": "Italian",
+    "currency": "EUR",
+    "flag": "🇮🇹"
+  },
+  {
+    "code": "ES",
+    "name": "Spain",
+    "region": "Europe",
+    "mainLanguage": "Spanish",
+    "currency": "EUR",
+    "flag": "🇪🇸"
+  },
+  {
+    "code": "FR",
+    "name": "France",
+    "region": "Europe",
+    "mainLanguage": "French",
+    "currency": "EUR",
+    "flag": "🇫🇷"
+  },
+  {
+    "code": "US",
+    "name": "United States",
+    "region": "North America",
+    "mainLanguage": "English",
+    "currency": "USD",
+    "flag": "🇺🇸"
+  },
+  {
+    "code": "TH",
+    "name": "Thailand",
+    "region": "Asia",
+    "mainLanguage": "Thai",
+    "currency": "THB",
+    "flag": "🇹🇭"
+  }
+]

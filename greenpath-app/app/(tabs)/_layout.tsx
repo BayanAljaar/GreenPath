@@ -1,33 +1,88 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+// app/(tabs)/_layout.tsx
+// app/(tabs)/_layout.tsx
+import { Tabs } from "expo-router";
+import React from "react";
+// 🏆 نستخدم الأيقونات مباشرةً من هنا
+import { MaterialCommunityIcons, FontAwesome, Ionicons } from '@expo/vector-icons'; 
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+
+// 💡 تم حذف:
+// import { TabBarIcon } from "../../components/TabBarIcon";
+// import { Colors } from "../../constants/Colors";
+// import { useColorScheme } from "../../hooks/useColorScheme"; 
+
+
+// 💡 ملاحظة: سنستخدم لون ثابت ('#1f9d55' وهو اللون الأخضر الأساسي) بدلاً من useColorScheme المفقود.
+const ACTIVE_TINT_COLOR = '#1f9d55'; 
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  // 💡 تم حذف: const colorScheme = useColorScheme();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: ACTIVE_TINT_COLOR, // نستخدم اللون الثابت
         headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
+        tabBarStyle: { height: 60, paddingBottom: 5 }, // لتحسين مظهر الشريط السفلي
+      }}
+    >
+      {/* 1. Home / דף הבית */}
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: "Home",
+          tabBarIcon: ({ color }) => (
+            // استخدام Ionicons
+            <Ionicons name="home" size={26} color={color} /> 
+          ),
         }}
       />
+
+      {/* 2. מסלול / תכנון טיול ירוק (Plan) */}
       <Tabs.Screen
-        name="explore"
+        name="plan" 
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: "PlanPath",
+          tabBarIcon: ({ color }) => (
+            // استخدام Ionicons
+            <Ionicons name="map" size={26} color={color} />
+          ),
+        }}
+      />
+
+      {/* 3. زياراتي / הטיולים השמורים (Trips) */}
+      <Tabs.Screen
+        name="trips"
+        options={{
+          title: "MyTrips",
+          tabBarIcon: ({ color }) => (
+            // استخدام MaterialCommunityIcons
+            <MaterialCommunityIcons name="map-marker-path" size={26} color={color} />
+          ),
+        }}
+      />
+
+      {/* 4. Share / קהילה ושיתופים */}
+      <Tabs.Screen
+        name="share"
+        options={{
+          title: "Share",
+          tabBarIcon: ({ color }) => (
+            // استخدام Ionicons
+            <Ionicons name="share-social" size={26} color={color} />
+          ),
+        }}
+      />
+      
+      {/* 5. Profile / פרופיל */}
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color }) => (
+            // استخدام FontAwesome
+            <FontAwesome name="user-circle" size={26} color={color} />
+          ),
         }}
       />
     </Tabs>
