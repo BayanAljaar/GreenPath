@@ -1,11 +1,24 @@
 // services/apiClient.ts
 import axios from "axios";
+import { Platform } from "react-native";
 
-// במקום לייבא מ ../constants/api – נגדיר כאן ישירות
-const API_BASE_URL = "http://localhost:4001";
+// تحديد عنوان API حسب المنصة
+// على الويب: localhost يعمل
+// على التلفون: يجب استخدام IP address للكمبيوتر
+// غيّر هذا العنوان إلى IP address لجهازك على الشبكة المحلية
+// يمكنك معرفته من: ipconfig (Windows) أو ifconfig (Mac/Linux)
+const getApiBaseUrl = () => {
+  if (Platform.OS === 'web') {
+    return "http://localhost:4001";
+  }
+  // على الأجهزة المحمولة، استخدم IP address للكمبيوتر
+  // غيّر هذا إلى IP address لجهازك (مثال: 192.168.1.100 أو 172.19.43.9)
+  return "http://172.19.43.9:4001"; // غيّر هذا إلى IP address لجهازك
+};
 
+const API_BASE_URL = getApiBaseUrl();
 
-console.log(">>> API_BASE_URL (inside apiClient) =", API_BASE_URL);
+console.log(">>> API_BASE_URL (inside apiClient) =", API_BASE_URL, "Platform:", Platform.OS);
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
