@@ -7,6 +7,7 @@ export interface IUser extends Document {
   email: string;
   passwordHash: string;
   createdAt: Date;
+  profilePicture?: string; // ⬅️ أضيفي هذا السطر هنا
 }
 
 const UserSchema = new Schema<IUser>(
@@ -18,6 +19,7 @@ const UserSchema = new Schema<IUser>(
            // חייב להיות ייחודי
     email: { type: String, required: true, unique: true },
     passwordHash: { type: String, required: true },
+    profilePicture: { type: String, default: "" },
   },
   { timestamps: true }
 );

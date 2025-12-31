@@ -2,13 +2,19 @@
 import axios from "axios";
 
 // במקום לייבא מ ../constants/api – נגדיר כאן ישירות
-const API_BASE_URL = "http://localhost:4001";
-
+//const API_BASE_URL = "http://localhost:4001";
+//const API_BASE_URL = "http://http://10.0.0.16::4001";
+// الرابط الجديد الذي حصلتِ عليه من ngrok
+const API_BASE_URL = "https://nonvehement-crestless-aaliyah.ngrok-free.dev";
 
 console.log(">>> API_BASE_URL (inside apiClient) =", API_BASE_URL);
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+    "ngrok-skip-browser-warning": "any-value", // ⬅️ هذا الرقم أو كلمة "true" ضرورية جداً // ⬅️ هذا السطر سيجعل البيانات تظهر فوراً
+  },
 });
 
 // מודל בסיסי למדינה
@@ -36,7 +42,8 @@ export async function fetchCountries(): Promise<Country[]> {
       err?.response?.status,
       err?.response?.data
     );
-    throw err;
+    //throw err;
+    return []; // إرجاع مصفوفة فارغة في حال الخطأ لمنع الانهيار
   }
 }
 
@@ -85,6 +92,7 @@ export type SaveTripPayload = {
 // ---------- AUTH ----------
 
 export type RegisterPayload = {
+  id: string;
   fullName: string;
   userName: string;
   email: string;
@@ -118,13 +126,12 @@ export async function registerUser(
   return res.data.user;
 }
 
-
-
 export async function saveTrip(payload: SaveTripPayload) {
   const res = await fetch(`${API_BASE_URL}/trips`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      'ngrok-skip-browser-warning': 'true'
     },
     body: JSON.stringify(payload),
   });
@@ -137,4 +144,27 @@ export async function saveTrip(payload: SaveTripPayload) {
   }
 
   return res.json();
+}
+
+// services/apiClient.ts
+
+// دالة تحديث بيانات المستخدم
+export const updateUserInfo = async (userId: string, data: any) => {
+  // افترضنا أن المسار في السيرفر هو /auth/update/:id
+  const response = await api.patch(`/auth/update/${userId}`, data);
+  return response.data;
+};
+
+// دالة حذف الحساب
+export const deleteAccount = async (userId: string) => {
+  const response = await api.delete(`/auth/delete/${userId}`);
+  return response.data;
+};
+
+
+// services/apiClient.ts
+export async function loginUser(payload: any) {
+  // نرسل userNameOrEmail و password كما يتوقع السيرفر في ملف auth.ts
+  const res = await api.post("/auth/login", payload); 
+  return res.data; // سيعيد { ok: true, user: {...} } أو { ok: false, message: "..." }
 }
