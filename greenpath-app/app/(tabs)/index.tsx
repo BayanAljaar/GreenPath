@@ -234,7 +234,7 @@ export default function HomeScreen() {
     // استخدم المفتاح الذي ينتهي بـ 18oA من صورتك في AI Studio
     //const API_KEY = "AIzaSyA2A2RLDTxMJj7zzgiajPXdccd4yW8-Nk0"; // استخدم المفتاح الذي ينتهي بـ Nk0
     //const URI = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;   
-    const GROQ_API_KEY = "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"; // يبدأ بـ gsk_
+    const GROQ_API_KEY = " "; // يبدأ بـ gsk_
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
