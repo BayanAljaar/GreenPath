@@ -33,7 +33,7 @@ export default function LandingScreen() {
       >
         {/* כותרת קצרה */}
         <ThemedText type="defaultSemiBold" style={styles.sectionTitle}>
-          למה שווה להירשם?
+            Why is it worth registering...
         </ThemedText>
 
         {/* שלוש “קוביות יתרון” */}
@@ -41,30 +41,30 @@ export default function LandingScreen() {
           <View style={styles.benefitCard}>
             <ThemedText style={styles.benefitIcon}>🌿</ThemedText>
             <ThemedText type="defaultSemiBold" style={styles.benefitTitle}>
-              טיולים ירוקים
+              Natural Green Trips
             </ThemedText>
             <ThemedText style={styles.benefitText}>
-              מסלולים שמתחשבים בתחבורה ציבורית, הליכה ומקומות טבע נעימים.
+             Routes, take into account public transportation, walking, and pleasant natural places. 
             </ThemedText>
           </View>
 
           <View style={styles.benefitCard}>
             <ThemedText style={styles.benefitIcon}>📚</ThemedText>
             <ThemedText type="defaultSemiBold" style={styles.benefitTitle}>
-              ידע לכל יעד
+             Knowledge For Every Destination
             </ThemedText>
             <ThemedText style={styles.benefitText}>
-              תקציר על המדינה, ערים וכפרים ירוקים וטיפים חשובים לפני נסיעה.
+              Summary of the entire country, green cities and villages, very important tips before traveling.
             </ThemedText>
           </View>
 
           <View style={styles.benefitCard}>
             <ThemedText style={styles.benefitIcon}>💾</ThemedText>
             <ThemedText type="defaultSemiBold" style={styles.benefitTitle}>
-              שמירת הטיולים
+              Saving Trips
             </ThemedText>
             <ThemedText style={styles.benefitText}>
-              הרשמה מאפשרת לשמור תכניות טיול, לחזור אליהן ולהמשיך מאיפה שעצרת.
+              Registration allows you to save plans to return to, and to continue where you stopped! 
             </ThemedText>
           </View>
         </View>
@@ -76,7 +76,7 @@ export default function LandingScreen() {
             onPress={() => router.push("/(auth)/register")}
           >
             <ThemedText style={styles.mainButtonText}>
-              יצירת חשבון חדש
+             Creating new account
             </ThemedText>
           </Pressable>
 
@@ -85,7 +85,7 @@ export default function LandingScreen() {
             onPress={() => router.push("/(auth)/login")}
           >
             <ThemedText style={styles.secondaryButtonText}>
-              יש לי כבר חשבון – כניסה
+              Already have an account- LOGIN 
             </ThemedText>
           </Pressable>
 
@@ -97,7 +97,7 @@ export default function LandingScreen() {
             }}
           >
             <ThemedText style={styles.ghostButtonText}>
-              להמשיך כאורחת ללא שמירת טיולים
+              Continue as a GUEST without savaing trips!
             </ThemedText>
           </Pressable>
         </View>
@@ -144,6 +144,7 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   sectionTitle: {
+    color: "#072c18ff",
     fontSize: 18,
     marginBottom: 12,
   },
@@ -170,10 +171,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   benefitTitle: {
+    color: "#1f9d55",
     fontSize: 14,
     marginBottom: 4,
   },
   benefitText: {
+    color: "#02160bff",
     fontSize: 12,
     lineHeight: 16,
     opacity: 0.8,
@@ -211,6 +214,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   ghostButtonText: {
+    color: "#02160bff",
     fontSize: 12,
     opacity: 0.75,
   },

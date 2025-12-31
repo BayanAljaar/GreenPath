@@ -13,11 +13,20 @@ import authRouter from "./routes/auth";
 dotenv.config();
 
 const app = express();
+//<<<<<<< HEAD
 const PORT = process.env.PORT || 4001;
 const MONGO = process.env.MONGODB_URI as string;
 
-
-app.use(cors());
+//ME
+//app.use(cors());
+//=======
+// تحسين CORS للسماح بالاتصالات من التلفون
+app.use(cors({
+  origin: '*', // في الإنتاج، حدد المنافذ المسموحة
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+//>>>>>>> main
 app.use(express.json());
 
 app.get("/health", (_req, res) => {

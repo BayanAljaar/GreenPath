@@ -1,20 +1,27 @@
 // services/apiClient.ts
 import axios from "axios";
+import { Platform } from "react-native";
+
 
 // במקום לייבא מ ../constants/api – נגדיר כאן ישירות
 //const API_BASE_URL = "http://localhost:4001";
 //const API_BASE_URL = "http://http://10.0.0.16::4001";
 // الرابط الجديد الذي حصلتِ عليه من ngrok
 const API_BASE_URL = "https://nonvehement-crestless-aaliyah.ngrok-free.dev";
+console.log(">>> API_BASE_URL (inside apiClient) =", API_BASE_URL, "Platform:", Platform.OS);
+// المسار الكامل للـ API
+//const API_URL = `${API_BASE_URL}/api`;
 
-console.log(">>> API_BASE_URL (inside apiClient) =", API_BASE_URL);
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  //timeout: 30000, // أضفنا الـ 30 ثانية (تعديل صديقتك) لضمان عدم انقطاع الاتصال
+
   headers: {
     'Content-Type': 'application/json',
     "ngrok-skip-browser-warning": "any-value", // ⬅️ هذا الرقم أو كلمة "true" ضرورية جداً // ⬅️ هذا السطر سيجعل البيانات تظهر فوراً
   },
+
 });
 
 // מודל בסיסי למדינה
@@ -31,7 +38,7 @@ export interface Country {
 // בקשה שמביאה את כל המדינות
 export async function fetchCountries(): Promise<Country[]> {
   try {
-    console.log(">>> calling /countries ...");
+    console.log(">>> calling /countries from:", API_BASE_URL);
     const res = await api.get<Country[]>("/countries");
     console.log(">>> /countries status =", res.status, "len =", res.data.length);
     return res.data;
@@ -42,7 +49,7 @@ export async function fetchCountries(): Promise<Country[]> {
       err?.response?.status,
       err?.response?.data
     );
-    //throw err;
+     //throw err;
     return []; // إرجاع مصفوفة فارغة في حال الخطأ لمنع الانهيار
   }
 }
@@ -66,6 +73,20 @@ export async function fetchCitiesByCountry(countryCode: string): Promise<City[]>
   });
   return res.data;
 }
+// מודל טיול
+export interface Trip {
+  _id: string;
+  userName: string;
+  countryCode: string;
+  countryName: string;
+  title: string;
+  startDate?: string;
+  endDate?: string;
+  style?: string;
+  notes?: string;
+  createdAt: string;
+}
+
 // למעלה ליד ה־types:
 export type TripPayload = {
   userName: string;
@@ -89,6 +110,20 @@ export type SaveTripPayload = {
   notes?: string;
 };
 
+// جلب جميع رحلات المستخدم
+export async function fetchUserTrips(userName: string): Promise<Trip[]> {
+  try {
+    const res = await api.get<{ ok: boolean; trips: Trip[] }>(`/trips/user/${userName}`);
+    if (res.data.ok && res.data.trips) {
+      return res.data.trips;
+    }
+    return [];
+  } catch (err: any) {
+    console.error(">>> axios error in fetchUserTrips:", err?.message);
+    throw err;
+  }
+}
+
 // ---------- AUTH ----------
 
 export type RegisterPayload = {
@@ -111,9 +146,8 @@ export type RegisterResponse = {
   };
 };
 
-export async function registerUser(
-  payload: RegisterPayload
-): Promise<NonNullable<RegisterResponse["user"]>> {
+export async function registerUser(payload: RegisterPayload): 
+  Promise<NonNullable<RegisterResponse["user"]>> {
   const res = await api.post<RegisterResponse>("/auth/register", payload);
   if (!res.data.ok) {
     throw new Error(res.data.message ?? "Registration failed");
@@ -135,15 +169,37 @@ export async function saveTrip(payload: SaveTripPayload) {
     },
     body: JSON.stringify(payload),
   });
-
-
+  
+  
   if (!res.ok) {
-    const text = await res.text(); // כדי לראות שגיאה אמיתית בלוג
-    console.error("saveTrip failed:", res.status, text);
-    throw new Error(`Failed to save trip: ${res.status}`);
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.message || "Failed to save trip");
   }
+  
+  const data = await res.json();
+  return data.trip; // إرجاع الرحلة المحفوظة مع _id
+}
 
-  return res.json();
+// تحديث رحلة موجودة
+export async function updateTrip(
+  tripId: string,
+  updates: {
+    startDate?: string;
+    endDate?: string;
+    style?: string;
+    notes?: string;
+  }
+): Promise<Trip> {
+  try {
+    const res = await api.put<{ ok: boolean; trip: Trip }>(`/trips/${tripId}`, updates);
+    if (res.data.ok && res.data.trip) {
+      return res.data.trip;
+    }
+    throw new Error("Failed to update trip");
+  } catch (err: any) {
+    console.error(">>> axios error in updateTrip:", err?.message);
+    throw err;
+  }
 }
 
 // services/apiClient.ts

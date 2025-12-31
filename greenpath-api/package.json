@@ -10,22 +10,17 @@
     "seed:cities": "ts-node src/scripts/seedCities.ts"
   },
   "dependencies": {
-    "@react-native-async-storage/async-storage": "^2.2.0",
-    "axios": "^1.13.2",
-    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "mongoose": "^7.6.1"
   },
   "devDependencies": {
-    "@types/axios": "^0.9.36",
-    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.5",
     "nodemon": "^3.0.3",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.3.3"
   }
 }

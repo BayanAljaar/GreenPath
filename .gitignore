@@ -14,7 +14,7 @@ ios/
 
 # קבצי env (גם ב-app וגם ב-api)
 .env
-.env.*
+.env
 *.env
 
 # לוגים

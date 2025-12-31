@@ -10,8 +10,10 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { ThemedText } from "../../components/themed-text";
 import { ThemedView } from "../../components/themed-view";
 import { useUser } from "../UserContext";
@@ -32,13 +34,15 @@ export default function TripPlanScreen() {
   const params = useLocalSearchParams<{
     countryCode?: string;
     countryName?: string;
+    cityName?: string;
   }>();
 
   const countryCode = params.countryCode ?? "";
   const countryName = params.countryName ?? "Selected country";
+  const cityName = params.cityName;
 
   const [form, setForm] = useState<TripFormState>({
-    tripName: `${countryName} – Green trip`,
+    tripName: cityName ? `${cityName}, ${countryName} – Green trip` : `${countryName} – Green trip`,
     startDate: "",
     endDate: "",
     travelStyle: "",
@@ -47,6 +51,14 @@ export default function TripPlanScreen() {
 
   const [saving, setSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [startDateValue, setStartDateValue] = useState<Date>(new Date());
+  const [endDateValue, setEndDateValue] = useState<Date>(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    return date;
+  });
 
   // אם אין משתמש – נחזיר למסך ההרשמה/כניסה
   useEffect(() => {
@@ -75,13 +87,35 @@ export default function TripPlanScreen() {
       setSaving(true);
       setSavedMessage(null);
 
+      // التأكد من أن التاريخ في الصيغة الصحيحة YYYY-MM-DD
+      let formattedStartDate = form.startDate.trim();
+      let formattedEndDate = form.endDate.trim();
+      
+      // تحويل التاريخ من DD/MM/YYYY إلى YYYY-MM-DD إذا لزم الأمر
+      if (formattedStartDate && /^\d{2}\/\d{2}\/\d{4}$/.test(formattedStartDate)) {
+        const [day, month, year] = formattedStartDate.split('/');
+        formattedStartDate = `${year}-${month}-${day}`;
+      }
+      
+      if (formattedEndDate && /^\d{2}\/\d{2}\/\d{4}$/.test(formattedEndDate)) {
+        const [day, month, year] = formattedEndDate.split('/');
+        formattedEndDate = `${year}-${month}-${day}`;
+      }
+      
+      console.log('>>> Saving trip with dates:', {
+        startDate: formattedStartDate,
+        endDate: formattedEndDate,
+        originalStartDate: form.startDate,
+        originalEndDate: form.endDate,
+      });
+      
       await saveTrip({
-        userName: user.name,
+        userName: user.userName,
         countryCode,
         countryName,
-        title: form.tripName || `${countryName} – Green trip`,
-        startDate: form.startDate,
-        endDate: form.endDate,
+        title: form.tripName || (cityName ? `${cityName}, ${countryName} – Green trip` : `${countryName} – Green trip`),
+        startDate: formattedStartDate || undefined,
+        endDate: formattedEndDate || undefined,
         style: form.travelStyle || "כללי",
         notes: form.notes,
       });
@@ -124,17 +158,19 @@ export default function TripPlanScreen() {
           {/* תיבה עם מידע על המדינה והמשתמש */}
           <ThemedView style={styles.countryCard}>
             <ThemedText type="defaultSemiBold" style={styles.countryTitle}>
-              {countryName}
+              {cityName ? `${cityName}, ${countryName}` : countryName}
             </ThemedText>
             <ThemedText style={styles.countrySubtitle}>
-              כאן נבנה ביחד את המסלול הירוק שלך ב־{countryName}. בהמשך נוסיף
+              כאן נבנה ביחד את המסלול הירוק שלך {cityName ? `ב־${cityName}` : `ב־${countryName}`}. בהמשך נוסיף
               המלצות דינמיות, תחבורה ירוקה ומקומות לינה ידידותיים לסביבה.
             </ThemedText>
 
             {user && (
               <ThemedText style={styles.userLine}>
                 מתכנן/ת:{" "}
-                <ThemedText type="defaultSemiBold">{user.name}</ThemedText>
+                <ThemedText type="defaultSemiBold" style={styles.userName}>
+                  {user.name}
+                </ThemedText>
               </ThemedText>
             )}
           </ThemedView>
@@ -156,22 +192,150 @@ export default function TripPlanScreen() {
             <View style={styles.row}>
               <View style={styles.rowItem}>
                 <ThemedText style={styles.label}>תאריך יציאה</ThemedText>
-                <TextInput
-                  style={styles.input}
-                  placeholder="2025-04-10"
-                  value={form.startDate}
-                  onChangeText={(text) => updateField("startDate", text)}
-                />
+                <Pressable
+                  style={styles.dateInput}
+                  onPress={() => setShowStartDatePicker(true)}
+                >
+                  <ThemedText style={styles.dateInputText}>
+                    {form.startDate || "Select start date"}
+                  </ThemedText>
+                  <ThemedText style={styles.dateInputIcon}>📅</ThemedText>
+                </Pressable>
+                {Platform.OS === 'ios' ? (
+                  <Modal
+                    visible={showStartDatePicker}
+                    transparent={true}
+                    animationType="slide"
+                  >
+                    <View style={styles.modalContainer}>
+                      <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                          <Pressable onPress={() => setShowStartDatePicker(false)}>
+                            <ThemedText style={styles.modalButton}>Cancel</ThemedText>
+                          </Pressable>
+                          <ThemedText style={styles.modalTitle}>Select Start Date</ThemedText>
+                          <Pressable
+                            onPress={() => {
+                              if (startDateValue) {
+                                const formattedDate = startDateValue.toISOString().split('T')[0];
+                                updateField("startDate", formattedDate);
+                              }
+                              setShowStartDatePicker(false);
+                            }}
+                          >
+                            <ThemedText style={[styles.modalButton, styles.modalButtonDone]}>Done</ThemedText>
+                          </Pressable>
+                        </View>
+                        <View style={styles.pickerContainer}>
+                          <DateTimePicker
+                            value={startDateValue}
+                            mode="date"
+                            display="spinner"
+                            onChange={(event, selectedDate) => {
+                              if (selectedDate) {
+                                setStartDateValue(selectedDate);
+                              }
+                            }}
+                            minimumDate={new Date()}
+                            style={styles.picker}
+                            textColor="#000000"
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  </Modal>
+                ) : (
+                  showStartDatePicker && (
+                    <DateTimePicker
+                      value={startDateValue || new Date()}
+                      mode="date"
+                      display="default"
+                      onChange={(event, selectedDate) => {
+                        setShowStartDatePicker(false);
+                        if (event.type === 'set' && selectedDate) {
+                          setStartDateValue(selectedDate);
+                          const formattedDate = selectedDate.toISOString().split('T')[0];
+                          updateField("startDate", formattedDate);
+                        }
+                      }}
+                      minimumDate={new Date()}
+                    />
+                  )
+                )}
               </View>
 
               <View style={styles.rowItem}>
                 <ThemedText style={styles.label}>תאריך חזרה</ThemedText>
-                <TextInput
-                  style={styles.input}
-                  placeholder="2025-04-18"
-                  value={form.endDate}
-                  onChangeText={(text) => updateField("endDate", text)}
-                />
+                <Pressable
+                  style={styles.dateInput}
+                  onPress={() => setShowEndDatePicker(true)}
+                >
+                  <ThemedText style={styles.dateInputText}>
+                    {form.endDate || "Select end date"}
+                  </ThemedText>
+                  <ThemedText style={styles.dateInputIcon}>📅</ThemedText>
+                </Pressable>
+                {Platform.OS === 'ios' ? (
+                  <Modal
+                    visible={showEndDatePicker}
+                    transparent={true}
+                    animationType="slide"
+                  >
+                    <View style={styles.modalContainer}>
+                      <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                          <Pressable onPress={() => setShowEndDatePicker(false)}>
+                            <ThemedText style={styles.modalButton}>Cancel</ThemedText>
+                          </Pressable>
+                          <ThemedText style={styles.modalTitle}>Select End Date</ThemedText>
+                          <Pressable
+                            onPress={() => {
+                              if (endDateValue) {
+                                const formattedDate = endDateValue.toISOString().split('T')[0];
+                                updateField("endDate", formattedDate);
+                              }
+                              setShowEndDatePicker(false);
+                            }}
+                          >
+                            <ThemedText style={[styles.modalButton, styles.modalButtonDone]}>Done</ThemedText>
+                          </Pressable>
+                        </View>
+                        <View style={styles.pickerContainer}>
+                          <DateTimePicker
+                            value={endDateValue}
+                            mode="date"
+                            display="spinner"
+                            onChange={(event, selectedDate) => {
+                              if (selectedDate) {
+                                setEndDateValue(selectedDate);
+                              }
+                            }}
+                            minimumDate={startDateValue}
+                            style={styles.picker}
+                            textColor="#000000"
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  </Modal>
+                ) : (
+                  showEndDatePicker && (
+                    <DateTimePicker
+                      value={endDateValue || (startDateValue || new Date())}
+                      mode="date"
+                      display="default"
+                      onChange={(event, selectedDate) => {
+                        setShowEndDatePicker(false);
+                        if (event.type === 'set' && selectedDate) {
+                          setEndDateValue(selectedDate);
+                          const formattedDate = selectedDate.toISOString().split('T')[0];
+                          updateField("endDate", formattedDate);
+                        }
+                      }}
+                      minimumDate={startDateValue || new Date()}
+                    />
+                  )
+                )}
               </View>
             </View>
 
@@ -269,70 +433,111 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#1f2937",
   },
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 32,
   },
   countryCard: {
     marginTop: 12,
-    padding: 16,
+    padding: 20,
     borderRadius: 16,
     backgroundColor: "#e0f2fe",
+    borderWidth: 1,
+    borderColor: "#bae6fd",
   },
   countryTitle: {
-    fontSize: 18,
-    marginBottom: 4,
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 8,
+    color: "#1e40af",
   },
   countrySubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 22,
     marginTop: 4,
+    color: "#1e3a8a",
+    opacity: 0.9,
   },
   userLine: {
-    marginTop: 10,
-    fontSize: 13,
+    marginTop: 12,
+    fontSize: 15,
+    color: "#1e40af",
+    fontWeight: "500",
+  },
+  userName: {
+    color: "#1e3a8a",
+    fontWeight: "700",
   },
   formCard: {
-    marginTop: 16,
-    padding: 16,
+    marginTop: 20,
+    padding: 20,
     borderRadius: 16,
     backgroundColor: "white",
     shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
   },
   sectionTitle: {
-    fontSize: 15,
-    marginBottom: 10,
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 16,
+    color: "#1f2937",
   },
   label: {
-    fontSize: 12,
-    marginTop: 8,
-    marginBottom: 4,
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 12,
+    marginBottom: 6,
+    color: "#374151",
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#d4d4d8",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: "#f9fafb",
-    fontSize: 13,
+    borderWidth: 1.5,
+    borderColor: "#d1d5db",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: "#ffffff",
+    fontSize: 15,
+    color: "#1f2937",
   },
   notesInput: {
-    minHeight: 80,
+    minHeight: 100,
     textAlignVertical: "top",
+  },
+  dateInput: {
+    borderWidth: 1.5,
+    borderColor: "#d1d5db",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: "#ffffff",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  dateInputText: {
+    fontSize: 15,
+    color: "#1f2937",
+    flex: 1,
+  },
+  dateInputIcon: {
+    fontSize: 18,
   },
   row: {
     flexDirection: "row",
-    gap: 8,
+    gap: 12,
   },
   rowItem: {
     flex: 1,
@@ -340,14 +545,14 @@ const styles = StyleSheet.create({
   chipsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    marginTop: 6,
+    gap: 8,
+    marginTop: 10,
   },
   chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: "#d1d5db",
     backgroundColor: "white",
   },
@@ -356,33 +561,88 @@ const styles = StyleSheet.create({
     borderColor: "#0f766e",
   },
   chipText: {
-    fontSize: 11,
+    fontSize: 13,
     color: "#374151",
+    fontWeight: "500",
   },
   chipTextSelected: {
     color: "white",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   actionsRow: {
-    marginTop: 16,
+    marginTop: 24,
     alignItems: "center",
   },
   saveButton: {
-    minWidth: 220,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    minWidth: 240,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
     borderRadius: 999,
     backgroundColor: "#0f766e",
     alignItems: "center",
+    shadowColor: "#0f766e",
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   saveButtonText: {
     color: "white",
-    fontWeight: "600",
-    fontSize: 14,
+    fontWeight: "700",
+    fontSize: 16,
   },
   savedMessage: {
-    marginTop: 8,
+    marginTop: 12,
     textAlign: "center",
-    fontSize: 12,
+    fontSize: 15,
+    fontWeight: "600",
+    padding: 12,
+    backgroundColor: "#d1fae5",
+    borderRadius: 12,
+    color: "#065f46",
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  modalContent: {
+    backgroundColor: "white",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1f2937",
+  },
+  modalButton: {
+    fontSize: 16,
+    color: "#6b7280",
+    fontWeight: "600",
+  },
+  modalButtonDone: {
+    color: "#0f766e",
+    fontWeight: "700",
+  },
+  pickerContainer: {
+    height: 250,
+    width: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+  },
+  picker: {
+    width: "100%",
+    height: 250,
   },
 });
