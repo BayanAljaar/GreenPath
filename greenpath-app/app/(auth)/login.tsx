@@ -22,6 +22,7 @@ export default function LoginScreen() {
       <View style={styles.form}>
         <TextInput
           placeholder="Email"
+          placeholderTextColor="#999"
           style={styles.input}
           keyboardType="email-address"
           value={email}
@@ -29,6 +30,7 @@ export default function LoginScreen() {
         />
         <TextInput
           placeholder="Password"
+          placeholderTextColor="#999"
           style={styles.input}
           secureTextEntry
           value={password}
@@ -80,12 +82,22 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#d0d7e2",
+    borderWidth: 2,
+    borderColor: "#1f9d55",
     borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "#f9fbff",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    backgroundColor: "#f8f9fa",
+    color: "#333",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   submitButton: {
     marginTop: 8,

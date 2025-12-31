@@ -64,4 +64,45 @@ router.get("/user/:userName", async (req, res) => {
   }
 });
 
+// PUT /trips/:tripId – עדכון טיול
+router.put("/:tripId", async (req, res) => {
+  try {
+    const { tripId } = req.params;
+    const {
+      startDate,
+      endDate,
+      style,
+      notes,
+    } = req.body;
+
+    const trip = await Trip.findByIdAndUpdate(
+      tripId,
+      {
+        $set: {
+          ...(startDate && { startDate }),
+          ...(endDate && { endDate }),
+          ...(style && { style }),
+          ...(notes !== undefined && { notes }),
+        },
+      },
+      { new: true }
+    );
+
+    if (!trip) {
+      return res.status(404).json({
+        ok: false,
+        message: "Trip not found",
+      });
+    }
+
+    return res.json({ ok: true, trip });
+  } catch (err) {
+    console.error("Error in PUT /trips/:tripId:", err);
+    return res.status(500).json({
+      ok: false,
+      message: "Server error while updating trip",
+    });
+  }
+});
+
 export default router;

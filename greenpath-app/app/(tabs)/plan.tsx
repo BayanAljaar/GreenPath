@@ -19,7 +19,7 @@ import { Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { ThemedView } from '../../components/themed-view';
 import { ThemedText } from '../../components/themed-text';
-import { fetchCountries, Country } from '../../services/apiClient';
+import { fetchCountries, Country, saveTrip, updateTrip } from '../../services/apiClient';
 import { useUser } from '../UserContext';
 import MapComponent from '../../components/MapComponent';
 
@@ -62,6 +62,7 @@ export default function PlanScreen() {
   const [isNavigating, setIsNavigating] = useState(false);
   const [remainingDistance, setRemainingDistance] = useState<number | null>(null);
   const [locationSubscription, setLocationSubscription] = useState<Location.LocationSubscription | null>(null);
+  const [currentTripId, setCurrentTripId] = useState<string | null>(null); // حفظ ID الرحلة الحالية
   
   // حالة الأماكن القريبة
   const [nearbyPlaces, setNearbyPlaces] = useState<Array<{
@@ -77,11 +78,13 @@ export default function PlanScreen() {
     latitude: number;
     longitude: number;
     type: string;
+    googlePlaceId?: string;
   } | null>(null);
   const [showNearbyPlaces, setShowNearbyPlaces] = useState(false);
   const [placeSearchQuery, setPlaceSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<string>('restaurant');
-  const [placeSuggestions, setPlaceSuggestions] = useState<Array<{ name: string; latitude: number; longitude: number }>>([]);
+  type PlaceSuggestion = { description: string; place_id: string };
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // معلومات إضافية عن الدولة المختارة (فنادق، معالم، إلخ)
@@ -127,29 +130,159 @@ export default function PlanScreen() {
   const [placeDetailsLoading, setPlaceDetailsLoading] = useState(false);
   const [showPlaceDetails, setShowPlaceDetails] = useState(false);
 
+  // Google API Helper Functions
+  const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+  
+  if (!GOOGLE_API_KEY) {
+    console.warn('EXPO_PUBLIC_GOOGLE_PLACES_API_KEY is not set. Google APIs will not work.');
+  }
+
+  // Google Autocomplete helper
+  const googleAutocomplete = async (query: string): Promise<Array<{ description: string; place_id: string }>> => {
+    if (!GOOGLE_API_KEY) {
+      return [];
+    }
+    
+    const trimmedQuery = query.trim();
+    if (trimmedQuery.length < 2) {
+      return [];
+    }
+
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(trimmedQuery)}&key=${GOOGLE_API_KEY}&language=en`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        console.error('Google Autocomplete API error:', response.status);
+        return [];
+      }
+
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.predictions) {
+        return data.predictions.map((pred: any) => ({
+          description: pred.description,
+          place_id: pred.place_id,
+        }));
+      }
+      
+      return [];
+    } catch (err) {
+      console.error('Error calling Google Autocomplete:', err);
+      return [];
+    }
+  };
+
+  // Google Place Details helper
+  const googlePlaceDetails = async (placeId: string): Promise<{
+    name: string;
+    rating?: number;
+    priceLevel?: number;
+    phone?: string;
+    website?: string;
+    openingHours?: string[];
+    reviews?: Array<{ author: string; rating: number; text: string }>;
+    address?: string;
+    geometry?: { location: { lat: number; lng: number } };
+  } | null> => {
+    if (!GOOGLE_API_KEY) {
+      return null;
+    }
+
+    try {
+      const fields = 'name,rating,price_level,formatted_phone_number,website,opening_hours,reviews,formatted_address,geometry';
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=${fields}&key=${GOOGLE_API_KEY}&language=ar`;
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        console.error('Google Place Details API error:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.result) {
+        const result = data.result;
+        
+        const openingHours: string[] = [];
+        if (result.opening_hours && result.opening_hours.weekday_text) {
+          openingHours.push(...result.opening_hours.weekday_text);
+        }
+
+        const reviews: Array<{ author: string; rating: number; text: string }> = [];
+        if (result.reviews && result.reviews.length > 0) {
+          result.reviews.slice(0, 5).forEach((review: any) => {
+            reviews.push({
+              author: review.author_name || 'User',
+              rating: review.rating || 0,
+              text: review.text || '',
+            });
+          });
+        }
+
+        return {
+          name: result.name || '',
+          rating: result.rating,
+          priceLevel: result.price_level,
+          phone: result.formatted_phone_number,
+          website: result.website,
+          openingHours: openingHours.length > 0 ? openingHours : undefined,
+          reviews: reviews.length > 0 ? reviews : undefined,
+          address: result.formatted_address,
+          geometry: result.geometry,
+        };
+      }
+      
+      return null;
+    } catch (err) {
+      console.error('Error calling Google Place Details:', err);
+      return null;
+    }
+  };
+
   // جلب الدول عند تحميل الصفحة
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
         setError(null);
+        console.log('>>> PlanScreen: Starting to fetch countries...', 'User:', user ? 'logged in' : 'guest');
         const data = await fetchCountries();
-        setCountries(data);
+        console.log('>>> PlanScreen: Fetched countries:', data?.length || 0);
+        if (data && Array.isArray(data)) {
+          if (data.length > 0) {
+            setCountries(data);
+            console.log('>>> PlanScreen: Countries set successfully:', data.length);
+          } else {
+            console.warn('>>> PlanScreen: Empty array received');
+            setCountries([]);
+          }
+        } else {
+          console.warn('>>> PlanScreen: Invalid data received:', typeof data);
+          setCountries([]);
+        }
       } catch (err: any) {
-        console.error('Failed to fetch countries:', err);
+        console.error('>>> PlanScreen: Failed to fetch countries:', err);
+        console.error('>>> PlanScreen: Error details:', {
+          message: err?.message,
+          code: err?.code,
+          response: err?.response?.data,
+          status: err?.response?.status,
+        });
         // معالجة أفضل للأخطاء
         if (err?.message?.includes('Network Error') || err?.code === 'ERR_NETWORK') {
-          setError('لا يمكن الاتصال بالخادم. تأكد من أن الـ API server يعمل على المنفذ 4001.');
+          setError('Cannot connect to server. Make sure the API server is running on port 4001.');
         } else {
-          setError('حدث خلل في تحميل الدول. حاول مرة أخرى لاحقاً.');
+          setError(`Failed to load countries: ${err?.message || 'Unknown error'}`);
         }
+        setCountries([]);
       } finally {
         setLoading(false);
       }
     };
 
     load();
-  }, []);
+  }, [user]); // إعادة التحميل عند تغيير حالة المستخدم
 
   // تنظيف المتابعة عند إغلاق الصفحة
   useEffect(() => {
@@ -173,8 +306,8 @@ export default function PlanScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert(
-          'إذن الموقع',
-          'يجب السماح بالوصول إلى الموقع لعرض الخريطة'
+          'Location Permission',
+          'Location access is required to display the map'
         );
         setLocationLoading(false);
         return;
@@ -188,7 +321,7 @@ export default function PlanScreen() {
       return { latitude, longitude };
     } catch (err) {
       console.error('Error getting location:', err);
-      Alert.alert('خطأ', 'فشل في الحصول على الموقع الحالي');
+      Alert.alert('Error', 'Failed to get current location');
       setLocationLoading(false);
       return null;
     }
@@ -224,6 +357,63 @@ export default function PlanScreen() {
     mode: 'walking' | 'driving' = travelMode
   ) => {
     try {
+      let walkingDistance = 0;
+      let walkingDuration = 0;
+      let drivingDistance = 0;
+      let drivingDuration = 0;
+      let routeCoordinates: Array<{ latitude: number; longitude: number }> = [];
+
+      // Try Google Directions API first for durations
+      if (GOOGLE_API_KEY) {
+        try {
+          // Get walking duration
+          const walkingUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&mode=walking&key=${GOOGLE_API_KEY}&language=en`;
+          const walkingGoogleResponse = await fetch(walkingUrl);
+          
+          if (walkingGoogleResponse.ok) {
+            const walkingGoogleData = await walkingGoogleResponse.json();
+            if (walkingGoogleData.status === 'OK' && walkingGoogleData.routes && walkingGoogleData.routes.length > 0) {
+              const route = walkingGoogleData.routes[0];
+              if (route.legs && route.legs.length > 0) {
+                const leg = route.legs[0];
+                if (leg.duration && leg.duration.value) {
+                  walkingDuration = Math.max(1, Math.ceil(leg.duration.value / 60));
+                }
+                if (leg.distance && leg.distance.value) {
+                  walkingDistance = leg.distance.value / 1000;
+                }
+              }
+            }
+          }
+
+          // Get driving duration with traffic
+          const drivingUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&mode=driving&departure_time=now&key=${GOOGLE_API_KEY}&language=en`;
+          const drivingGoogleResponse = await fetch(drivingUrl);
+          
+          if (drivingGoogleResponse.ok) {
+            const drivingGoogleData = await drivingGoogleResponse.json();
+            if (drivingGoogleData.status === 'OK' && drivingGoogleData.routes && drivingGoogleData.routes.length > 0) {
+              const route = drivingGoogleData.routes[0];
+              if (route.legs && route.legs.length > 0) {
+                const leg = route.legs[0];
+                // Use duration_in_traffic if available, otherwise duration
+                if (leg.duration_in_traffic && leg.duration_in_traffic.value) {
+                  drivingDuration = Math.max(1, Math.ceil(leg.duration_in_traffic.value / 60));
+                } else if (leg.duration && leg.duration.value) {
+                  drivingDuration = Math.max(1, Math.ceil(leg.duration.value / 60));
+                }
+                if (leg.distance && leg.distance.value) {
+                  drivingDistance = leg.distance.value / 1000;
+                }
+              }
+            }
+          }
+        } catch (googleErr) {
+          console.log('Google Directions API error:', googleErr);
+          // Continue to fallback
+        }
+      }
+
       const API_KEY = '5b3ce3597851110001cf6248'; // API key عام
       
       // حساب المسارين معاً (مشي وسيارة) للحصول على أوقات دقيقة
@@ -262,20 +452,19 @@ export default function PlanScreen() {
         ),
       ]);
       
-      let walkingDistance = 0;
-      let walkingDuration = 0;
-      let drivingDistance = 0;
-      let drivingDuration = 0;
-      let routeCoordinates: Array<{ latitude: number; longitude: number }> = [];
-      
       // معالجة نتيجة المسار مشياً
       if (walkingResponse.ok) {
         const walkingData = await walkingResponse.json();
         if (walkingData.routes && walkingData.routes.length > 0) {
           const route = walkingData.routes[0];
           if (route.summary) {
-            walkingDistance = route.summary.distance / 1000; // تحويل من متر إلى كيلومتر
-            walkingDuration = Math.round(route.summary.duration / 60); // تحويل من ثانية إلى دقيقة
+            // Only update if Google didn't provide duration
+            if (walkingDuration === 0) {
+              walkingDuration = Math.max(1, Math.ceil(route.summary.duration / 60)); // تحويل من ثانية إلى دقيقة
+            }
+            if (walkingDistance === 0) {
+              walkingDistance = route.summary.distance / 1000; // تحويل من متر إلى كيلومتر
+            }
             console.log('Walking route:', { distance: walkingDistance, duration: walkingDuration });
           }
           // استخدام إحداثيات المسار المشي إذا كان الوضع مشياً
@@ -296,8 +485,13 @@ export default function PlanScreen() {
         if (drivingData.routes && drivingData.routes.length > 0) {
           const route = drivingData.routes[0];
           if (route.summary) {
-            drivingDistance = route.summary.distance / 1000; // تحويل من متر إلى كيلومتر
-            drivingDuration = Math.round(route.summary.duration / 60); // تحويل من ثانية إلى دقيقة
+            // Only update if Google didn't provide duration
+            if (drivingDuration === 0) {
+              drivingDuration = Math.max(1, Math.ceil(route.summary.duration / 60)); // تحويل من ثانية إلى دقيقة
+            }
+            if (drivingDistance === 0) {
+              drivingDistance = route.summary.distance / 1000; // تحويل من متر إلى كيلومتر
+            }
             console.log('Driving route:', { distance: drivingDistance, duration: drivingDuration });
           }
           // استخدام إحداثيات المسار بالسيارة إذا كان الوضع بالسيارة
@@ -329,8 +523,12 @@ export default function PlanScreen() {
           if (osrmWalkingData.routes && osrmWalkingData.routes.length > 0) {
             const route = osrmWalkingData.routes[0];
             if (route.distance && route.duration) {
-              walkingDistance = route.distance / 1000;
-              walkingDuration = Math.round(route.duration / 60);
+              if (walkingDistance === 0) {
+                walkingDistance = route.distance / 1000;
+              }
+              if (walkingDuration === 0) {
+                walkingDuration = Math.max(1, Math.ceil(route.duration / 60));
+              }
             }
             if (mode === 'walking' && route.geometry && route.geometry.coordinates && routeCoordinates.length === 0) {
               routeCoordinates = route.geometry.coordinates.map((coord: number[]) => ({
@@ -346,8 +544,12 @@ export default function PlanScreen() {
           if (osrmDrivingData.routes && osrmDrivingData.routes.length > 0) {
             const route = osrmDrivingData.routes[0];
             if (route.distance && route.duration) {
-              drivingDistance = route.distance / 1000;
-              drivingDuration = Math.round(route.duration / 60);
+              if (drivingDistance === 0) {
+                drivingDistance = route.distance / 1000;
+              }
+              if (drivingDuration === 0) {
+                drivingDuration = Math.max(1, Math.ceil(route.duration / 60));
+              }
             }
             if (mode === 'driving' && route.geometry && route.geometry.coordinates && routeCoordinates.length === 0) {
               routeCoordinates = route.geometry.coordinates.map((coord: number[]) => ({
@@ -369,8 +571,8 @@ export default function PlanScreen() {
         
         walkingDistance = distanceKm;
         drivingDistance = distanceKm;
-        walkingDuration = Math.round((distanceKm / 5) * 60); // 5 كم/ساعة
-        drivingDuration = Math.round((distanceKm / 50) * 60); // 50 كم/ساعة
+        walkingDuration = Math.max(1, Math.ceil((distanceKm / 5) * 60)); // 5 كم/ساعة
+        drivingDuration = Math.max(1, Math.ceil((distanceKm / 30) * 60)); // 30 كم/ساعة
         
         // خط مستقيم كبديل
         const numPoints = 20;
@@ -392,19 +594,19 @@ export default function PlanScreen() {
       
       // إذا لم نحصل على وقت للمشي، نستخدم تقدير
       if (finalWalkingDuration === 0) {
-        finalWalkingDuration = Math.round((finalDistance / 5) * 60); // 5 كم/ساعة
+        finalWalkingDuration = Math.max(1, Math.ceil((finalDistance / 5) * 60)); // 5 كم/ساعة
       }
       
       // إذا لم نحصل على وقت بالسيارة، نستخدم تقدير
       if (finalDrivingDuration === 0) {
-        finalDrivingDuration = Math.round((finalDistance / 50) * 60); // 50 كم/ساعة
+        finalDrivingDuration = Math.max(1, Math.ceil((finalDistance / 30) * 60)); // 30 كم/ساعة
       }
       
       // إذا كانت الأوقات متساوية (وهذا غير منطقي)، نعيد حسابها بناءً على المسافة
       if (finalWalkingDuration === finalDrivingDuration && finalDistance > 0) {
         console.log('Warning: Walking and driving durations are equal, recalculating...');
-        finalWalkingDuration = Math.round((finalDistance / 5) * 60); // 5 كم/ساعة
-        finalDrivingDuration = Math.round((finalDistance / 50) * 60); // 50 كم/ساعة
+        finalWalkingDuration = Math.max(1, Math.ceil((finalDistance / 5) * 60)); // 5 كم/ساعة
+        finalDrivingDuration = Math.max(1, Math.ceil((finalDistance / 30) * 60)); // 30 كم/ساعة
       }
       
       console.log('Final route info:', {
@@ -443,8 +645,8 @@ export default function PlanScreen() {
       
       setRouteInfo({
         distance: Math.round(distanceKm * 10) / 10,
-        durationWalking: Math.round((distanceKm / 5) * 60), // 5 كم/ساعة
-        durationDriving: Math.round((distanceKm / 50) * 60), // 50 كم/ساعة
+        durationWalking: Math.max(1, Math.ceil((distanceKm / 5) * 60)), // 5 كم/ساعة
+        durationDriving: Math.max(1, Math.ceil((distanceKm / 30) * 60)), // 30 كم/ساعة
       });
     }
   };
@@ -452,7 +654,7 @@ export default function PlanScreen() {
   // البحث عن أماكن قريبة
   const searchNearbyPlaces = async (query: string = 'restaurant') => {
     if (!currentLocation) {
-      Alert.alert('خطأ', 'يجب الحصول على الموقع الحالي أولاً');
+      Alert.alert('Error', 'Please get your current location first');
       return;
     }
 
@@ -460,7 +662,72 @@ export default function PlanScreen() {
       setPlacesLoading(true);
       const { latitude, longitude } = currentLocation;
       
-      // خريطة أنواع الأماكن إلى OSM tags
+      // محاولة استخدام Google Places Nearby Search API أولاً
+      if (GOOGLE_API_KEY) {
+        try {
+          // خريطة أنواع الأماكن إلى Google Place Types
+          const googleTypeMap: { [key: string]: string } = {
+            'restaurant': 'restaurant',
+            'cafe': 'cafe',
+            'hotel': 'lodging',
+            'museum': 'museum',
+            'pharmacy': 'pharmacy',
+            'bank': 'bank',
+            'fuel': 'gas_station',
+            'hospital': 'hospital',
+            'park': 'park',
+            'shopping': 'shopping_mall',
+          };
+          
+          const googleType = googleTypeMap[query] || query;
+          const radius = 2000; // 2 كم
+          
+          const nearbySearchUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${latitude},${longitude}&radius=${radius}&type=${googleType}&key=${GOOGLE_API_KEY}&language=ar`;
+          
+          const googleResponse = await fetch(nearbySearchUrl);
+          
+          if (googleResponse.ok) {
+            const googleData = await googleResponse.json();
+            
+            if (googleData.status === 'OK' && googleData.results && googleData.results.length > 0) {
+              const places = googleData.results
+                .map((place: any) => {
+                  const placeLat = place.geometry?.location?.lat;
+                  const placeLon = place.geometry?.location?.lng;
+                  
+                  if (!placeLat || !placeLon) return null;
+                  
+                  // حساب المسافة
+                  const distance = calculateDistance(latitude, longitude, placeLat, placeLon);
+                  
+                  return {
+                    name: place.name || 'Unknown place',
+                    latitude: placeLat,
+                    longitude: placeLon,
+                    type: query,
+                    distance: distance,
+                    googlePlaceId: place.place_id, // حفظ place_id من Google
+                  };
+                })
+                .filter((place: any) => place !== null && place.distance <= 2);
+              
+              // ترتيب حسب المسافة
+              places.sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance);
+              
+              if (places.length > 0) {
+                setNearbyPlaces(places.slice(0, 20));
+                setShowNearbyPlaces(true);
+                setPlacesLoading(false);
+                return; // نجح البحث من Google، لا حاجة للبحث في Overpass
+              }
+            }
+          }
+        } catch (googleErr) {
+          console.log('Google Places Nearby Search failed, trying Overpass...', googleErr);
+        }
+      }
+      
+      // خريطة أنواع الأماكن إلى OSM tags (fallback)
       const placeTypeMap: { [key: string]: string[] } = {
         'restaurant': ['amenity=restaurant', 'amenity=fast_food', 'amenity=food_court'],
         'cafe': ['amenity=cafe', 'amenity=coffee_shop'],
@@ -525,7 +792,7 @@ export default function PlanScreen() {
               const name = element.tags?.name || 
                           element.tags?.['name:ar'] || 
                           element.tags?.['name:en'] || 
-                          'مكان غير معروف';
+                          'Unknown place';
               
               return {
                 name: name,
@@ -574,7 +841,7 @@ export default function PlanScreen() {
           if (distance > 2) return null;
           
           return {
-            name: place.display_name.split(',')[0] || place.name || 'مكان غير معروف',
+            name: place.display_name.split(',')[0] || place.name || 'Unknown place',
             latitude: placeLat,
             longitude: placeLon,
             type: query,
@@ -590,7 +857,7 @@ export default function PlanScreen() {
       setShowNearbyPlaces(true);
     } catch (err) {
       console.error('Error searching nearby places:', err);
-      Alert.alert('خطأ', 'فشل في البحث عن أماكن قريبة');
+      Alert.alert('Error', 'Failed to search for nearby places');
     } finally {
       setPlacesLoading(false);
     }
@@ -669,7 +936,7 @@ const searchNearbyByName = async (name: string) => {
         if (distance > 2) return null; // فقط ضمن 2 كم
 
         return {
-          name: p.display_name?.split(',')[0] || p.name || 'مكان',
+          name: p.display_name?.split(',')[0] || p.name || 'Place',
           latitude: placeLat,
           longitude: placeLon,
           type: 'search',
@@ -683,7 +950,7 @@ const searchNearbyByName = async (name: string) => {
     setShowNearbyPlaces(true);
   } catch (err) {
     console.error('Error searching nearby by name:', err);
-    Alert.alert('خطأ', 'فشل في البحث بالاسم');
+      Alert.alert('Error', 'Failed to search by name');
   } finally {
     setPlacesLoading(false);
   }
@@ -691,42 +958,148 @@ const searchNearbyByName = async (name: string) => {
 
 // Autocomplete: اقتراحات أثناء الكتابة (ضمن 2 كم)
 const fetchPlaceSuggestions = async (text: string) => {
-  if (!currentLocation) return;
   const q = text.trim();
   if (q.length < 2) {
     setPlaceSuggestions([]);
     return;
   }
 
+  const key = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+  if (!key) {
+    // Fallback to Nominatim
+    if (!currentLocation) {
+      setPlaceSuggestions([]);
+      return;
+    }
+    try {
+      const { latitude, longitude } = currentLocation;
+      const radiusMeters = 2000;
+      const delta = radiusMeters / 111320;
+
+      const left = longitude - delta;
+      const right = longitude + delta;
+      const top = latitude + delta;
+      const bottom = latitude - delta;
+
+      const url =
+        `https://nominatim.openstreetmap.org/search?format=json` +
+        `&q=${encodeURIComponent(q)}` +
+        `&viewbox=${left},${top},${right},${bottom}` +
+        `&bounded=1&limit=6&addressdetails=1`;
+
+      const res = await fetch(url, { headers: { 'User-Agent': 'GreenPathApp/1.0' } });
+      if (!res.ok) {
+        setPlaceSuggestions([]);
+        return;
+      }
+      const data = await res.json();
+
+      const sug = (data || []).map((p: any) => ({
+        description: p.display_name?.split(',')[0] || p.name || 'Suggestion',
+        place_id: `nominatim_${p.lat}_${p.lon}`,
+      }));
+
+      setPlaceSuggestions(sug);
+    } catch (err) {
+      console.log('Nominatim suggestions error:', err);
+      setPlaceSuggestions([]);
+    }
+    return;
+  }
+
   try {
-    const { latitude, longitude } = currentLocation;
-    const radiusMeters = 2000;
-    const delta = radiusMeters / 111320;
-
-    const left = longitude - delta;
-    const right = longitude + delta;
-    const top = latitude + delta;
-    const bottom = latitude - delta;
-
     const url =
-      `https://nominatim.openstreetmap.org/search?format=json` +
-      `&q=${encodeURIComponent(q)}` +
-      `&viewbox=${left},${top},${right},${bottom}` +
-      `&bounded=1&limit=6&addressdetails=1`;
+      `https://maps.googleapis.com/maps/api/place/autocomplete/json?` +
+      `input=${encodeURIComponent(q)}` +
+      `&key=${encodeURIComponent(key)}` +
+      `&language=ar`;
 
-    const res = await fetch(url, { headers: { 'User-Agent': 'GreenPathApp/1.0' } });
-    if (!res.ok) return;
+    console.log('Fetching Google Autocomplete for:', q);
+    const res = await fetch(url);
     const data = await res.json();
+    
+    console.log('Google Autocomplete response status:', data.status);
+    
+    if (data.status !== "OK") {
+      console.warn('Google Autocomplete failed with status:', data.status, data.error_message || '');
+      // Fallback to Nominatim if Google fails
+      if (!currentLocation) {
+        setPlaceSuggestions([]);
+        return;
+      }
+      try {
+        const { latitude, longitude } = currentLocation;
+        const radiusMeters = 2000;
+        const delta = radiusMeters / 111320;
 
-    const sug = (data || []).map((p: any) => ({
-      name: p.display_name?.split(',')[0] || p.name || 'اقتراح',
-      latitude: parseFloat(p.lat),
-      longitude: parseFloat(p.lon),
+        const left = longitude - delta;
+        const right = longitude + delta;
+        const top = latitude + delta;
+        const bottom = latitude - delta;
+
+        const nominatimUrl =
+          `https://nominatim.openstreetmap.org/search?format=json` +
+          `&q=${encodeURIComponent(q)}` +
+          `&viewbox=${left},${top},${right},${bottom}` +
+          `&bounded=1&limit=6&addressdetails=1`;
+
+        const nominatimRes = await fetch(nominatimUrl, { headers: { 'User-Agent': 'GreenPathApp/1.0' } });
+        if (nominatimRes.ok) {
+          const nominatimData = await nominatimRes.json();
+          const sug = (nominatimData || []).map((p: any) => ({
+            description: p.display_name?.split(',')[0] || p.name || 'Suggestion',
+            place_id: `nominatim_${p.lat}_${p.lon}`,
+          }));
+          setPlaceSuggestions(sug);
+          return;
+        }
+      } catch (nominatimErr) {
+        console.error('Nominatim fallback error:', nominatimErr);
+      }
+      setPlaceSuggestions([]);
+      return;
+    }
+
+    const sug = (data.predictions || []).slice(0, 6).map((p: any) => ({
+      description: p.description,
+      place_id: p.place_id,
     }));
-
+    console.log('Setting suggestions:', sug.length);
     setPlaceSuggestions(sug);
-  } catch (err) {
-    console.log('Suggestions error:', err);
+  } catch (e) {
+    console.error('Google Autocomplete error:', e);
+    // Try Nominatim fallback on error
+    if (currentLocation) {
+      try {
+        const { latitude, longitude } = currentLocation;
+        const radiusMeters = 2000;
+        const delta = radiusMeters / 111320;
+
+        const left = longitude - delta;
+        const right = longitude + delta;
+        const top = latitude + delta;
+        const bottom = latitude - delta;
+
+        const nominatimUrl =
+          `https://nominatim.openstreetmap.org/search?format=json` +
+          `&q=${encodeURIComponent(q)}` +
+          `&viewbox=${left},${top},${right},${bottom}` +
+          `&bounded=1&limit=6&addressdetails=1`;
+
+        const nominatimRes = await fetch(nominatimUrl, { headers: { 'User-Agent': 'GreenPathApp/1.0' } });
+        if (nominatimRes.ok) {
+          const nominatimData = await nominatimRes.json();
+          const sug = (nominatimData || []).map((p: any) => ({
+            description: p.display_name?.split(',')[0] || p.name || 'Suggestion',
+            place_id: `nominatim_${p.lat}_${p.lon}`,
+          }));
+          setPlaceSuggestions(sug);
+          return;
+        }
+      } catch (nominatimErr) {
+        console.error('Nominatim fallback error:', nominatimErr);
+      }
+    }
     setPlaceSuggestions([]);
   }
 };
@@ -792,22 +1165,82 @@ const fetchPlaceSuggestions = async (text: string) => {
   };
 
   // بدء متابعة المسار
+  // جلب اسم الدولة من الإحداثيات
+  const getCountryFromCoordinates = async (lat: number, lon: number): Promise<{ countryName: string; countryCode: string } | null> => {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=3&addressdetails=1`
+      );
+      const data = await response.json();
+      if (data && data.address) {
+        const countryName = data.address.country || data.address.country_code?.toUpperCase() || 'Unknown';
+        const countryCode = data.address.country_code?.toUpperCase() || 'XX';
+        return { countryName, countryCode };
+      }
+      return null;
+    } catch (err) {
+      console.error('Error getting country from coordinates:', err);
+      return null;
+    }
+  };
+
   const startNavigation = async () => {
     if (!currentLocation || !destinationLocation) {
-      Alert.alert('خطأ', 'يجب اختيار وجهة أولاً');
+      Alert.alert('Error', 'Please select a destination first');
       return;
     }
 
     if (!routeInfo) {
-      Alert.alert('خطأ', 'يجب حساب المسار أولاً');
+      Alert.alert('Error', 'Please calculate the route first');
       return;
     }
 
     try {
+      // حفظ الرحلة إذا كان المستخدم مسجل دخول وكان هناك مكان مختار
+      if (user && selectedPlace) {
+        try {
+          // جلب معلومات الدولة من موقع الوجهة
+          const countryInfo = await getCountryFromCoordinates(
+            destinationLocation.latitude,
+            destinationLocation.longitude
+          );
+          
+          if (countryInfo) {
+            const today = new Date();
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            const savedTrip = await saveTrip({
+              userName: user.userName,
+              countryCode: countryInfo.countryCode,
+              countryName: countryInfo.countryName,
+              title: `${selectedPlace.name} - ${selectedPlace.type} - Green trip`,
+              startDate: today.toISOString().split('T')[0],
+              endDate: tomorrow.toISOString().split('T')[0],
+              style: 'Local Exploration',
+              notes: `Navigating to ${selectedPlace.name} (${selectedPlace.type})`,
+            });
+            
+            // حفظ ID الرحلة
+            if (savedTrip && savedTrip._id) {
+              console.log('>>> Saved trip ID:', savedTrip._id);
+              setCurrentTripId(savedTrip._id);
+            } else {
+              console.warn('>>> Warning: savedTrip or _id is missing:', savedTrip);
+            }
+            
+            Alert.alert('✅', 'Trip saved! Check "My Trips" to see your current trip.');
+          }
+        } catch (saveErr) {
+          console.error('Error saving trip:', saveErr);
+          // لا نوقف العملية إذا فشل الحفظ
+        }
+      }
+
       // طلب إذن الموقع
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('إذن الموقع', 'يجب السماح بالوصول إلى الموقع لمتابعة المسار');
+        Alert.alert('Location Permission', 'Location access is required to navigate');
         return;
       }
 
@@ -856,7 +1289,7 @@ const fetchPlaceSuggestions = async (text: string) => {
           
           // إذا وصلنا للوجهة (أقل من 50 متر)
           if (finalDistance < 0.05) {
-            Alert.alert('🎉', 'وصلت إلى الوجهة!');
+            Alert.alert('🎉', 'You have arrived at your destination!');
             stopNavigation();
           }
         }
@@ -865,19 +1298,46 @@ const fetchPlaceSuggestions = async (text: string) => {
       setLocationSubscription(subscription);
     } catch (err) {
       console.error('Error starting navigation:', err);
-      Alert.alert('خطأ', 'فشل في بدء متابعة المسار');
+      Alert.alert('Error', 'Failed to start navigation');
       setIsNavigating(false);
     }
   };
 
   // إيقاف متابعة المسار
-  const stopNavigation = () => {
+  const stopNavigation = async () => {
     if (locationSubscription) {
       locationSubscription.remove();
       setLocationSubscription(null);
     }
     setIsNavigating(false);
     setRemainingDistance(null);
+    
+    // تحديث الرحلة لتكون مكتملة
+    if (currentTripId && user) {
+      try {
+        const today = new Date();
+        // استخدام تاريخ اليوم مع الوقت 00:00:00 لضمان أن الرحلة تنتقل إلى المكتملة
+        today.setHours(0, 0, 0, 0);
+        const endDateStr = today.toISOString().split('T')[0];
+        
+        console.log('>>> stopNavigation: Updating trip:', currentTripId, 'endDate to:', endDateStr);
+        
+        const updatedTrip = await updateTrip(currentTripId, {
+          endDate: endDateStr,
+          notes: `Completed navigation to ${selectedPlace?.name || 'destination'}`,
+        });
+        
+        console.log('>>> stopNavigation: Trip updated successfully:', updatedTrip);
+        
+        setCurrentTripId(null); // إعادة تعيين ID الرحلة
+        Alert.alert('✅', 'Trip completed! Check "My Trips" to see it in completed trips.');
+      } catch (err) {
+        console.error('>>> stopNavigation: Error updating trip:', err);
+        Alert.alert('Error', 'Failed to update trip. Please try again.');
+      }
+    } else {
+      console.warn('>>> stopNavigation: No currentTripId or user. currentTripId:', currentTripId, 'user:', user?.userName);
+    }
   };
 
   // جلب تفاصيل المكان من Google Places API
@@ -886,90 +1346,81 @@ const fetchPlaceSuggestions = async (text: string) => {
     latitude: number;
     longitude: number;
     type: string;
+    googlePlaceId?: string;
   }) => {
     try {
       setPlaceDetailsLoading(true);
       
-      // Google Places API Key - يمكن إضافته في ملف .env أو Constants
-      // للحصول على API key: https://console.cloud.google.com/apis/credentials
-      const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || 'YOUR_GOOGLE_PLACES_API_KEY';
-      
-      // محاولة استخدام Google Places API أولاً
-      if (GOOGLE_PLACES_API_KEY && GOOGLE_PLACES_API_KEY !== 'YOUR_GOOGLE_PLACES_API_KEY') {
-        try {
-          // 1. البحث عن المكان باستخدام Text Search
-          const searchResponse = await fetch(
-            `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(place.name)}&location=${place.latitude},${place.longitude}&radius=100&key=${GOOGLE_PLACES_API_KEY}`
-          );
-          
-          if (searchResponse.ok) {
-            const searchData = await searchResponse.json();
+      // Try Google Place Details first if we have a place_id
+      if (GOOGLE_API_KEY) {
+        let placeId = place.googlePlaceId;
+        
+        // If no place_id, try to find it using nearby search first (أكثر دقة)
+        if (!placeId) {
+          try {
+            // استخدام Nearby Search للبحث عن المكان القريب
+            const nearbySearchUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${place.latitude},${place.longitude}&radius=50&name=${encodeURIComponent(place.name)}&key=${GOOGLE_API_KEY}&language=ar`;
+            const nearbyResponse = await fetch(nearbySearchUrl);
             
-            if (searchData.results && searchData.results.length > 0) {
-              // استخدام أول نتيجة (الأقرب)
-              const placeResult = searchData.results[0];
-              const placeId = placeResult.place_id;
-              
-              // 2. جلب التفاصيل الكاملة باستخدام Place Details API
-              const detailsResponse = await fetch(
-                `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,rating,price_level,opening_hours,formatted_phone_number,formatted_address,website,photos,reviews,international_phone_number&key=${GOOGLE_PLACES_API_KEY}`
-              );
-              
-              if (detailsResponse.ok) {
-                const detailsData = await detailsResponse.json();
-                
-                if (detailsData.result) {
-                  const result = detailsData.result;
-                  
-                  // استخراج أوقات العمل
-                  const openingHours: string[] = [];
-                  if (result.opening_hours && result.opening_hours.weekday_text) {
-                    openingHours.push(...result.opening_hours.weekday_text);
-                  }
-                  
-                  // استخراج الصور
-                  const photos: string[] = [];
-                  if (result.photos && result.photos.length > 0) {
-                    result.photos.slice(0, 3).forEach((photo: any) => {
-                      photos.push(
-                        `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photo.photo_reference}&key=${GOOGLE_PLACES_API_KEY}`
-                      );
-                    });
-                  }
-                  
-                  // استخراج التقييمات
-                  const reviews: Array<{ author: string; rating: number; text: string }> = [];
-                  if (result.reviews && result.reviews.length > 0) {
-                    result.reviews.slice(0, 5).forEach((review: any) => {
-                      reviews.push({
-                        author: review.author_name || 'مستخدم',
-                        rating: review.rating || 0,
-                        text: review.text || '',
-                      });
-                    });
-                  }
-                  
-                  setPlaceDetails({
-                    name: result.name || place.name,
-                    rating: result.rating,
-                    priceLevel: result.price_level, // 0-4 (0 = مجاني، 4 = غالي جداً)
-                    openingHours: openingHours,
-                    phone: result.formatted_phone_number || result.international_phone_number || '',
-                    address: result.formatted_address || '',
-                    website: result.website || '',
-                    photos: photos,
-                    reviews: reviews,
-                  });
-                  setShowPlaceDetails(true);
-                  setPlaceDetailsLoading(false);
-                  return;
-                }
+            if (nearbyResponse.ok) {
+              const nearbyData = await nearbyResponse.json();
+              if (nearbyData.status === 'OK' && nearbyData.results && nearbyData.results.length > 0) {
+                // البحث عن أقرب مكان بنفس الاسم
+                const closestPlace = nearbyData.results.find((p: any) => 
+                  p.name.toLowerCase().includes(place.name.toLowerCase()) || 
+                  place.name.toLowerCase().includes(p.name.toLowerCase())
+                ) || nearbyData.results[0];
+                placeId = closestPlace.place_id;
+                console.log('>>> Found place_id using Nearby Search:', placeId);
               }
             }
+          } catch (nearbyErr) {
+            console.log('Google Nearby Search error, trying text search...', nearbyErr);
           }
-        } catch (googleErr) {
-          console.log('Google Places API error:', googleErr);
-          // نستمر إلى Fallback APIs
+          
+          // If still no place_id, try text search
+          if (!placeId) {
+            try {
+              const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(place.name)}&location=${place.latitude},${place.longitude}&radius=200&key=${GOOGLE_API_KEY}&language=ar`;
+              const searchResponse = await fetch(searchUrl);
+              
+              if (searchResponse.ok) {
+                const searchData = await searchResponse.json();
+                if (searchData.status === 'OK' && searchData.results && searchData.results.length > 0) {
+                  placeId = searchData.results[0].place_id;
+                  console.log('>>> Found place_id using Text Search:', placeId);
+                }
+              }
+            } catch (searchErr) {
+              console.log('Google Text Search error:', searchErr);
+            }
+          }
+        }
+        
+        // If we have a place_id, get details
+        if (placeId) {
+          console.log('>>> Fetching Google Place Details for place_id:', placeId);
+          setShowPlaceDetails(true); // عرض الـ modal فوراً
+          const details = await googlePlaceDetails(placeId);
+          if (details) {
+            console.log('>>> Google Place Details loaded successfully:', details.name);
+            setPlaceDetails({
+              name: details.name || place.name,
+              rating: details.rating,
+              priceLevel: details.priceLevel,
+              openingHours: details.openingHours,
+              phone: details.phone,
+              address: details.address,
+              website: details.website,
+              reviews: details.reviews,
+            });
+            setPlaceDetailsLoading(false);
+            return;
+          } else {
+            console.warn('>>> Google Place Details returned null for place_id:', placeId);
+          }
+        } else {
+          console.warn('>>> No place_id found for place:', place.name);
         }
       }
       
@@ -1088,7 +1539,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
 
   // اعتبريها “مكان مختار” حتى تظهر عندك معلومات المسار/الأزرار
   const pseudoPlace = {
-    name: '📍 نقطة مختارة من الخريطة',
+    name: '📍 Point selected from map',
     latitude: coordinate.latitude,
     longitude: coordinate.longitude,
     type: 'map_long_press',
@@ -1105,12 +1556,60 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
   await calculateRoute(origin, { latitude: coordinate.latitude, longitude: coordinate.longitude }, travelMode);
 };
 
+  // Helper to fetch place details by place_id
+  const fetchPlaceDetailsByPlaceId = async (placeId: string): Promise<void> => {
+    try {
+      const details = await googlePlaceDetails(placeId);
+      
+      if (!details) {
+        Alert.alert('Error', 'Place details could not be loaded. Please try again.');
+        return;
+      }
+
+      if (!details.geometry || !details.geometry.location) {
+        Alert.alert('Error', 'Place location could not be loaded. Please try again.');
+        return;
+      }
+
+      // Create place object
+      const place = {
+        name: details.name || '',
+        latitude: details.geometry.location.lat,
+        longitude: details.geometry.location.lng,
+        type: 'search' as const,
+        googlePlaceId: placeId,
+      };
+
+      // Set place details state
+      if (details) {
+        setPlaceDetails({
+          name: details.name || '',
+          rating: details.rating,
+          priceLevel: details.priceLevel,
+          openingHours: details.openingHours,
+          phone: details.phone,
+          address: details.address,
+          website: details.website,
+          reviews: details.reviews,
+        });
+        setShowPlaceDetails(true);
+      }
+
+      // Call handleSelectPlace to set destination, calculate route, and open map
+      await handleSelectPlace(place);
+    } catch (err) {
+      console.error('Error in fetchPlaceDetailsByPlaceId:', err);
+      Alert.alert('Error', 'Failed to load place details. Please try again.');
+    }
+  };
+
   // اختيار مكان والذهاب إليه
   const handleSelectPlace = async (place: {
     name: string;
     latitude: number;
     longitude: number;
     type: string;
+    googlePlaceId?: string;
   }) => {
     if (!currentLocation) return;
     
@@ -1148,7 +1647,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
     // الحصول على إحداثيات الدولة المختارة
     const destination = await getCountryCoordinates(selectedCountry.name);
     if (!destination) {
-      Alert.alert('خطأ', 'لم يتم العثور على إحداثيات الدولة');
+      Alert.alert('Error', 'Could not find country coordinates');
       setLocationLoading(false);
       return;
     }
@@ -1205,78 +1704,78 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
       // قائمة معالم مشهورة حقيقية لكل دولة (معلومات دقيقة ومشجعة)
       const famousAttractions: { [key: string]: Array<{ name: string; emoji: string; desc: string }> } = {
         'Turkey': [
-          { name: 'آيا صوفيا', emoji: '🕌', desc: 'مسجد تاريخي عظيم في إسطنبول - تحفة معمارية بيزنطية' },
-          { name: 'قصر توبكابي', emoji: '🏰', desc: 'قصر السلاطين العثمانيين - متحف تاريخي رائع' },
-          { name: 'كابادوكيا', emoji: '🎈', desc: 'منطقة طبيعية ساحرة - رحلات بالمنطاد' },
-          { name: 'البازار الكبير', emoji: '🛍️', desc: 'أكبر سوق مغطى في العالم - تسوق تقليدي' },
-          { name: 'البوسفور', emoji: '⛴️', desc: 'مضيق يفصل بين أوروبا وآسيا - رحلات بحرية' },
-          { name: 'أنطاليا', emoji: '🏖️', desc: 'مدينة ساحلية جميلة - شواطئ رائعة' },
+          { name: 'Hagia Sophia', emoji: '🕌', desc: 'Great historical mosque in Istanbul - Byzantine architectural masterpiece' },
+          { name: 'Topkapi Palace', emoji: '🏰', desc: 'Palace of Ottoman sultans - wonderful historical museum' },
+          { name: 'Cappadocia', emoji: '🎈', desc: 'Charming natural region - hot air balloon rides' },
+          { name: 'Grand Bazaar', emoji: '🛍️', desc: 'World\'s largest covered market - traditional shopping' },
+          { name: 'Bosphorus', emoji: '⛴️', desc: 'Strait separating Europe and Asia - boat tours' },
+          { name: 'Antalya', emoji: '🏖️', desc: 'Beautiful coastal city - amazing beaches' },
         ],
         'Israel': [
-          { name: 'حائط البراق', emoji: '🕍', desc: 'أقدس موقع يهودي - تاريخ ديني عريق' },
-          { name: 'البحر الميت', emoji: '🏖️', desc: 'أدنى نقطة على الأرض - تجربة فريدة' },
-          { name: 'تل أبيب', emoji: '🌆', desc: 'مدينة ساحلية نابضة بالحياة - ثقافة حديثة' },
-          { name: 'القدس', emoji: '⛪', desc: 'مدينة مقدسة - تاريخ وثقافة غنية' },
-          { name: 'البحر الأحمر', emoji: '🐠', desc: 'غوص رائع - عالم بحري خلاب' },
-          { name: 'جبل الزيتون', emoji: '⛰️', desc: 'منظر بانورامي رائع - تاريخ ديني' },
+          { name: 'Western Wall', emoji: '🕍', desc: 'Holiest Jewish site - rich religious history' },
+          { name: 'Dead Sea', emoji: '🏖️', desc: 'Lowest point on Earth - unique experience' },
+          { name: 'Tel Aviv', emoji: '🌆', desc: 'Vibrant coastal city - modern culture' },
+          { name: 'Jerusalem', emoji: '⛪', desc: 'Holy city - rich history and culture' },
+          { name: 'Red Sea', emoji: '🐠', desc: 'Amazing diving - beautiful marine world' },
+          { name: 'Mount of Olives', emoji: '⛰️', desc: 'Stunning panoramic view - religious history' },
         ],
         'Greece': [
-          { name: 'الأكروبوليس', emoji: '🏛️', desc: 'معبد أثينا - رمز الحضارة اليونانية' },
-          { name: 'جزيرة سانتوريني', emoji: '🏝️', desc: 'جزيرة ساحرة - غروب شمس لا يُنسى' },
-          { name: 'متحف الأكروبوليس', emoji: '🎭', desc: 'كنوز أثرية - تاريخ عريق' },
-          { name: 'ميكونوس', emoji: '🌊', desc: 'جزيرة حفلات - حياة ليلية ممتعة' },
-          { name: 'أوليمبيا', emoji: '🏟️', desc: 'موطن الألعاب الأولمبية - تاريخ رياضي' },
-          { name: 'دلفي', emoji: '🔮', desc: 'موقع أثري مقدس - أساطير يونانية' },
+          { name: 'Acropolis', emoji: '🏛️', desc: 'Temple of Athena - symbol of Greek civilization' },
+          { name: 'Santorini Island', emoji: '🏝️', desc: 'Charming island - unforgettable sunset' },
+          { name: 'Acropolis Museum', emoji: '🎭', desc: 'Archaeological treasures - ancient history' },
+          { name: 'Mykonos', emoji: '🌊', desc: 'Party island - fun nightlife' },
+          { name: 'Olympia', emoji: '🏟️', desc: 'Home of the Olympic Games - sports history' },
+          { name: 'Delphi', emoji: '🔮', desc: 'Sacred archaeological site - Greek mythology' },
         ],
         'Italy': [
-          { name: 'الكولوسيوم', emoji: '🏛️', desc: 'مدرج روماني عظيم - معلم تاريخي شهير' },
-          { name: 'برج بيزا المائل', emoji: '🗼', desc: 'معجزة معمارية - تحفة فنية' },
-          { name: 'البندقية', emoji: '🚤', desc: 'مدينة على الماء - رومانسية فريدة' },
-          { name: 'روما', emoji: '🏛️', desc: 'مدينة الخالدة - تاريخ وثقافة غنية' },
-          { name: 'فلورنسا', emoji: '🎨', desc: 'مهد عصر النهضة - فن وثقافة' },
-          { name: 'البومبي', emoji: '🌋', desc: 'مدينة أثرية - تاريخ محفوظ' },
+          { name: 'Colosseum', emoji: '🏛️', desc: 'Great Roman amphitheater - famous historical landmark' },
+          { name: 'Leaning Tower of Pisa', emoji: '🗼', desc: 'Architectural wonder - artistic masterpiece' },
+          { name: 'Venice', emoji: '🚤', desc: 'City on water - unique romance' },
+          { name: 'Rome', emoji: '🏛️', desc: 'Eternal city - rich history and culture' },
+          { name: 'Florence', emoji: '🎨', desc: 'Cradle of the Renaissance - art and culture' },
+          { name: 'Pompeii', emoji: '🌋', desc: 'Archaeological city - preserved history' },
         ],
         'France': [
-          { name: 'برج إيفل', emoji: '🗼', desc: 'رمز باريس - منظر بانورامي رائع' },
-          { name: 'متحف اللوفر', emoji: '🎨', desc: 'أكبر متحف في العالم - كنوز فنية' },
-          { name: 'قصر فرساي', emoji: '🏰', desc: 'قصر ملكي فاخر - تاريخ ملكي' },
-          { name: 'نوتردام', emoji: '⛪', desc: 'كاتدرائية قوطية - تحفة معمارية' },
-          { name: 'شامب إليزيه', emoji: '🛍️', desc: 'أشهر شارع في باريس - تسوق راقي' },
-          { name: 'مونت سان ميشيل', emoji: '🏰', desc: 'جزيرة دينية - معلم ساحر' },
+          { name: 'Eiffel Tower', emoji: '🗼', desc: 'Symbol of Paris - stunning panoramic view' },
+          { name: 'Louvre Museum', emoji: '🎨', desc: 'World\'s largest museum - artistic treasures' },
+          { name: 'Palace of Versailles', emoji: '🏰', desc: 'Luxurious royal palace - royal history' },
+          { name: 'Notre-Dame', emoji: '⛪', desc: 'Gothic cathedral - architectural masterpiece' },
+          { name: 'Champs-Élysées', emoji: '🛍️', desc: 'Most famous street in Paris - upscale shopping' },
+          { name: 'Mont Saint-Michel', emoji: '🏰', desc: 'Religious island - charming landmark' },
         ],
         'Spain': [
-          { name: 'قصر الحمراء', emoji: '🏰', desc: 'قصر أندلسي في غرناطة - فن إسلامي' },
-          { name: 'ساغرادا فاميليا', emoji: '⛪', desc: 'كنيسة في برشلونة - تحفة غاودي' },
-          { name: 'متحف برادو', emoji: '🎨', desc: 'متحف فني في مدريد - لوحات عظيمة' },
-          { name: 'إشبيلية', emoji: '🎭', desc: 'موطن الفلامنكو - ثقافة أندلسية' },
-          { name: 'جزر الكناري', emoji: '🏝️', desc: 'جزر استوائية - شواطئ رائعة' },
-          { name: 'بلنسية', emoji: '🍊', desc: 'مدينة برتقالية - فنون وعلوم' },
+          { name: 'Alhambra Palace', emoji: '🏰', desc: 'Andalusian palace in Granada - Islamic art' },
+          { name: 'Sagrada Familia', emoji: '⛪', desc: 'Church in Barcelona - Gaudi masterpiece' },
+          { name: 'Prado Museum', emoji: '🎨', desc: 'Art museum in Madrid - great paintings' },
+          { name: 'Seville', emoji: '🎭', desc: 'Home of flamenco - Andalusian culture' },
+          { name: 'Canary Islands', emoji: '🏝️', desc: 'Tropical islands - amazing beaches' },
+          { name: 'Valencia', emoji: '🍊', desc: 'Orange city - arts and sciences' },
         ],
         'Jordan': [
-          { name: 'البتراء', emoji: '🏛️', desc: 'مدينة وردية منحوتة في الصخر - عجائب الدنيا' },
-          { name: 'البحر الميت', emoji: '🏖️', desc: 'أدنى نقطة على الأرض - طين علاجي' },
-          { name: 'وادي رم', emoji: '🏜️', desc: 'صحراء حمراء - مناظر خلابة' },
-          { name: 'عمان', emoji: '🏙️', desc: 'عاصمة حديثة - تاريخ وثقافة' },
-          { name: 'جرش', emoji: '🏛️', desc: 'مدينة رومانية - آثار محفوظة' },
+          { name: 'Petra', emoji: '🏛️', desc: 'Pink city carved in rock - wonder of the world' },
+          { name: 'Dead Sea', emoji: '🏖️', desc: 'Lowest point on Earth - therapeutic mud' },
+          { name: 'Wadi Rum', emoji: '🏜️', desc: 'Red desert - stunning landscapes' },
+          { name: 'Amman', emoji: '🏙️', desc: 'Modern capital - history and culture' },
+          { name: 'Jerash', emoji: '🏛️', desc: 'Roman city - preserved ruins' },
         ],
         'Egypt': [
-          { name: 'أهرامات الجيزة', emoji: '🔺', desc: 'عجائب الدنيا السبع - تاريخ فرعوني' },
-          { name: 'أبو الهول', emoji: '🦁', desc: 'تمثال عظيم - رمز الحضارة' },
-          { name: 'معبد الكرنك', emoji: '🏛️', desc: 'مجمع معابد - تاريخ عريق' },
-          { name: 'نهر النيل', emoji: '⛴️', desc: 'أطول نهر في العالم - رحلات بحرية' },
-          { name: 'الأقصر', emoji: '🏛️', desc: 'مدينة المعابد - آثار فرعونية' },
+          { name: 'Pyramids of Giza', emoji: '🔺', desc: 'Seven wonders of the world - Pharaonic history' },
+          { name: 'Sphinx', emoji: '🦁', desc: 'Great statue - symbol of civilization' },
+          { name: 'Karnak Temple', emoji: '🏛️', desc: 'Temple complex - ancient history' },
+          { name: 'Nile River', emoji: '⛴️', desc: 'World\'s longest river - boat tours' },
+          { name: 'Luxor', emoji: '🏛️', desc: 'City of temples - Pharaonic ruins' },
         ],
         'Morocco': [
-          { name: 'مراكش', emoji: '🏰', desc: 'المدينة الحمراء - سوق وثقافة' },
-          { name: 'فاس', emoji: '🕌', desc: 'مدينة إسلامية قديمة - تاريخ عريق' },
-          { name: 'الصحراء الكبرى', emoji: '🏜️', desc: 'صحراء شاسعة - رحلات جمال' },
-          { name: 'الدار البيضاء', emoji: '🌆', desc: 'مدينة حديثة - فن معماري' },
+          { name: 'Marrakech', emoji: '🏰', desc: 'Red city - market and culture' },
+          { name: 'Fes', emoji: '🕌', desc: 'Ancient Islamic city - rich history' },
+          { name: 'Sahara Desert', emoji: '🏜️', desc: 'Vast desert - camel rides' },
+          { name: 'Casablanca', emoji: '🌆', desc: 'Modern city - architectural art' },
         ],
         'United Arab Emirates': [
-          { name: 'برج خليفة', emoji: '🏗️', desc: 'أطول برج في العالم - دبي' },
-          { name: 'برج العرب', emoji: '⛵', desc: 'فندق فاخر - رفاهية عالية' },
-          { name: 'جزيرة النخيل', emoji: '🌴', desc: 'جزيرة اصطناعية - إبداع معماري' },
-          { name: 'أبوظبي', emoji: '🏛️', desc: 'عاصمة ثقافية - متاحف عالمية' },
+          { name: 'Burj Khalifa', emoji: '🏗️', desc: 'World\'s tallest tower - Dubai' },
+          { name: 'Burj Al Arab', emoji: '⛵', desc: 'Luxury hotel - high-end comfort' },
+          { name: 'Palm Island', emoji: '🌴', desc: 'Artificial island - architectural creativity' },
+          { name: 'Abu Dhabi', emoji: '🏛️', desc: 'Cultural capital - world-class museums' },
         ],
       };
       
@@ -1314,24 +1813,24 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
         // إضافة معلومات عامة
         attractions.push(
           {
-            name: 'معالم تاريخية',
+            name: 'Historical Landmarks',
             emoji: '🏛️',
-            desc: `استكشف المواقع التاريخية والثقافية في ${countryName}`,
+            desc: `Explore historical and cultural sites in ${countryName}`,
           },
           {
-            name: 'فنادق فاخرة',
+            name: 'Luxury Hotels',
             emoji: '🏨',
-            desc: `اكتشف أفضل الفنادق والمنتجعات في ${countryName}`,
+            desc: `Discover the best hotels and resorts in ${countryName}`,
           },
           {
-            name: 'مطاعم محلية',
+            name: 'Local Restaurants',
             emoji: '🍽️',
-            desc: `تذوق الأطباق المحلية الشهية في ${countryName}`,
+            desc: `Taste delicious local dishes in ${countryName}`,
           },
           {
-            name: 'طبيعة خلابة',
+            name: 'Stunning Nature',
             emoji: '🌳',
-            desc: `استمتع بالمناظر الطبيعية في ${countryName}`,
+            desc: `Enjoy natural landscapes in ${countryName}`,
           }
         );
       }
@@ -1349,19 +1848,19 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
       // في حالة الخطأ، نعرض معلومات افتراضية
       setCountryAttractions([
         {
-          name: `🏨 فنادق في ${countryName}`,
+          name: `🏨 Hotels in ${countryName}`,
           type: 'hotel',
-          description: `اكتشف أفضل الفنادق والمنتجعات`,
+          description: `Discover the best hotels and resorts`,
         },
         {
-          name: `🏛️ معالم تاريخية`,
+          name: `🏛️ Historical Landmarks`,
           type: 'landmark',
-          description: `استكشف المواقع التاريخية والثقافية`,
+          description: `Explore historical and cultural sites`,
         },
         {
-          name: `🍽️ مطاعم محلية`,
+          name: `🍽️ Local Restaurants`,
           type: 'restaurant',
-          description: `تذوق الأطباق المحلية الشهية`,
+          description: `Taste delicious local dishes`,
         },
       ]);
     } finally {
@@ -1540,9 +2039,9 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   let desc = '';
                   if (place.display_name) {
                     const parts = place.display_name.split(',');
-                    desc = parts.length > 1 ? `${parts[1].trim()}` : `معلم سياحي مميز في ${cityName}`;
+                    desc = parts.length > 1 ? `${parts[1].trim()}` : `Distinguished tourist attraction in ${cityName}`;
                   } else {
-                    desc = `مكان مميز في ${cityName}`;
+                    desc = `Special place in ${cityName}`;
                   }
                   
                   attractions.push({
@@ -1567,24 +2066,24 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
       if (attractions.length === 0) {
         attractions.push(
           {
-            name: '🏛️ معالم تاريخية',
+            name: '🏛️ Historical Landmarks',
             type: 'landmark',
-            description: `استكشف المواقع التاريخية العريقة في ${cityName}`,
+            description: `Explore ancient historical sites in ${cityName}`,
           },
           {
-            name: '🏨 فنادق فاخرة',
+            name: '🏨 Luxury Hotels',
             type: 'hotel',
-            description: `اكتشف أفضل الفنادق والإقامة في ${cityName}`,
+            description: `Discover the best hotels and accommodations in ${cityName}`,
           },
           {
-            name: '🍽️ مطاعم محلية',
+            name: '🍽️ Local Restaurants',
             type: 'restaurant',
-            description: `تذوق الأطباق المحلية الشهية في ${cityName}`,
+            description: `Taste delicious local dishes in ${cityName}`,
           },
           {
-            name: '🎭 ثقافة وفنون',
+            name: '🎭 Culture & Arts',
             type: 'tourism',
-            description: `استمتع بالثقافة والفنون في ${cityName}`,
+            description: `Enjoy culture and arts in ${cityName}`,
           }
         );
       }
@@ -1672,6 +2171,24 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
     }
   };
 
+  // الانتقال إلى صفحة التخطيط من مدينة
+  const handlePlanTripFromCity = () => {
+    if (!selectedCity || !selectedCountry) return;
+    
+    if (user) {
+      router.push({
+        pathname: '/trip/plan',
+        params: {
+          countryCode: selectedCountry.code,
+          countryName: selectedCountry.name,
+          cityName: selectedCity.name,
+        },
+      });
+    } else {
+      router.push('/(auth)/landing');
+    }
+  };
+
   // البحث عند الضغط على Enter
   const handleSearchSubmit = () => {
     const trimmed = search.trim().toLowerCase();
@@ -1700,7 +2217,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
     return (
       <ThemedView style={styles.center}>
         <ActivityIndicator size="large" />
-        <ThemedText style={styles.infoText}>جاري تحميل الدول... 🌍</ThemedText>
+        <ThemedText style={styles.infoText}>Loading countries... 🌍</ThemedText>
       </ThemedView>
     );
   }
@@ -1722,10 +2239,10 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
         {/* العنوان */}
         <View style={styles.headerContainer}>
           <ThemedText type="title" style={styles.title}>
-            תכנון טיול חדש 🌿
+            Plan New Trip 🌿
           </ThemedText>
           <ThemedText style={styles.subtitle}>
-            ابحث عن دولة أو منطقة لبدء التخطيط لرحلتك الخضراء
+            Search for a country or region to start planning your green journey
           </ThemedText>
         </View>
 
@@ -1735,7 +2252,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
           onPress={handleShowLocalMap}
         >
           <ThemedText style={styles.localPlacesButtonText}>
-            🗺️ اكتشف أماكن قريبة منك (مطاعم، معالم، إلخ)
+            🗺️ Discover nearby places (restaurants, attractions, etc.)
           </ThemedText>
         </Pressable>
 
@@ -1744,7 +2261,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
           <View style={styles.nearbyPlacesContainer}>
             <View style={styles.nearbyPlacesHeader}>
               <ThemedText type="defaultSemiBold" style={styles.nearbyPlacesTitle}>
-                أماكن قريبة منك
+                Nearby Places
               </ThemedText>
               <Pressable
                 style={styles.closePlacesButton}
@@ -1764,7 +2281,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
             
             {/* أزرار الفلترة السريعة */}
             <View style={styles.filtersContainer}>
-              <ThemedText style={styles.filtersLabel}>فلتر سريع:</ThemedText>
+              <ThemedText style={styles.filtersLabel}>Quick Filter:</ThemedText>
               <ScrollView 
                 horizontal 
                 showsHorizontalScrollIndicator={false}
@@ -1772,16 +2289,16 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                 contentContainerStyle={styles.filtersScrollContent}
               >
                 {[
-                  { key: 'restaurant', label: '🍽️ مطعم', query: 'restaurant' },
-                  { key: 'cafe', label: '☕ مقهى', query: 'cafe' },
-                  { key: 'hotel', label: '🏨 فندق', query: 'hotel' },
-                  { key: 'museum', label: '🏛️ متحف', query: 'museum' },
-                  { key: 'pharmacy', label: '💊 صيدلية', query: 'pharmacy' },
-                  { key: 'bank', label: '🏦 بنك', query: 'bank' },
-                  { key: 'gas_station', label: '⛽ محطة وقود', query: 'fuel' },
-                  { key: 'hospital', label: '🏥 مستشفى', query: 'hospital' },
-                  { key: 'park', label: '🌳 حديقة', query: 'park' },
-                  { key: 'shopping', label: '🛍️ تسوق', query: 'shopping' },
+                  { key: 'restaurant', label: '🍽️ Restaurant', query: 'restaurant' },
+                  { key: 'cafe', label: '☕ Cafe', query: 'cafe' },
+                  { key: 'hotel', label: '🏨 Hotel', query: 'hotel' },
+                  { key: 'museum', label: '🏛️ Museum', query: 'museum' },
+                  { key: 'pharmacy', label: '💊 Pharmacy', query: 'pharmacy' },
+                  { key: 'bank', label: '🏦 Bank', query: 'bank' },
+                  { key: 'gas_station', label: '⛽ Gas Station', query: 'fuel' },
+                  { key: 'hospital', label: '🏥 Hospital', query: 'hospital' },
+                  { key: 'park', label: '🌳 Park', query: 'park' },
+                  { key: 'shopping', label: '🛍️ Shopping', query: 'shopping' },
                 ].map((filter) => (
                   <Pressable
                     key={filter.key}
@@ -1817,15 +2334,15 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
 
             <View style={styles.placeSearchRow}>
               <TextInput
-                placeholder="ابحث عن مكان محدد..."
+                placeholder="Search for a specific place..."
                 value={placeSearchQuery}
                 onChangeText={(t) => {
                 setPlaceSearchQuery(t);
-                // Debounce for suggestions
+                // Debounce for suggestions (300ms as specified)
                 if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
                 typingTimeoutRef.current = setTimeout(() => {
                   fetchPlaceSuggestions(t);
-                }, 350);
+                }, 300);
               }}
                 style={styles.placeSearchInput}
               />
@@ -1842,7 +2359,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                 disabled={placesLoading}
               >
                 <ThemedText style={styles.searchPlaceButtonText}>
-                  {placesLoading ? '...' : 'بحث'}
+                  {placesLoading ? '...' : 'Search'}
                 </ThemedText>
               </Pressable>
             
@@ -1858,26 +2375,39 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
       backgroundColor: 'white',
     }}
   >
-    {placeSuggestions.map((s, idx) => (
+    {placeSuggestions.map((s) => (
       <Pressable
-        key={`${s.name}-${idx}`}
+        key={s.place_id}
         style={{
           padding: 12,
-          borderBottomWidth: idx === placeSuggestions.length - 1 ? 0 : 1,
+          borderBottomWidth: placeSuggestions.indexOf(s) === placeSuggestions.length - 1 ? 0 : 1,
           borderBottomColor: '#f3f4f6',
         }}
-        onPress={() => {
-          setPlaceSearchQuery(s.name);
+        onPress={async () => {
+          setPlaceSearchQuery(s.description);
           setPlaceSuggestions([]);
-          handleSelectPlace({
-            name: s.name,
-            latitude: s.latitude,
-            longitude: s.longitude,
-            type: 'search',
-          });
+          
+          // If it's a Google place_id, use the new helper
+          if (s.place_id && !s.place_id.startsWith('nominatim_')) {
+            await fetchPlaceDetailsByPlaceId(s.place_id);
+            return;
+          }
+          
+          // Fallback for Nominatim results
+          if (s.place_id && s.place_id.startsWith('nominatim_')) {
+            const parts = s.place_id.replace('nominatim_', '').split('_');
+            if (parts.length === 2) {
+              handleSelectPlace({
+                name: s.description,
+                latitude: parseFloat(parts[0]),
+                longitude: parseFloat(parts[1]),
+                type: 'search',
+              });
+            }
+          }
         }}
       >
-        <ThemedText>{s.name}</ThemedText>
+        <ThemedText>{s.description}</ThemedText>
       </Pressable>
     ))}
   </View>
@@ -1909,13 +2439,13 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                       <View style={styles.placeCardRight}>
                         <ThemedText style={styles.placeDistance}>
                           {place.distance && place.distance < 1 
-                            ? `${Math.round(place.distance * 1000)} م` 
+                            ? `${Math.round(place.distance * 1000)} m` 
                             : place.distance 
-                              ? `${place.distance.toFixed(1)} كم`
+                              ? `${place.distance.toFixed(1)} km`
                               : '—'}
                         </ThemedText>
                         <ThemedText style={styles.placeDistanceLabel}>
-                          {place.distance && place.distance < 1 ? 'متر' : 'كيلومتر'}
+                          {place.distance && place.distance < 1 ? 'meters' : 'km'}
                         </ThemedText>
                       </View>
                     </View>
@@ -1924,7 +2454,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
               </ScrollView>
             ) : (
               <ThemedText style={styles.noPlacesText}>
-                لم يتم العثور على أماكن. جرب البحث بكلمات مختلفة.
+                No places found. Try searching with different keywords.
               </ThemedText>
             )}
           </View>
@@ -1933,7 +2463,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
         {/* خانة البحث - نخفيها عند عرض الأماكن القريبة */}
         {!showNearbyPlaces && (
           <TextInput
-            placeholder="ابحث عن دولة أو منطقة (مثال: تركيا، إسرائيل، اليونان...)"
+            placeholder="Search for a country or region (e.g., Turkey, Israel, Greece...)"
             value={search}
             onChangeText={setSearch}
             onSubmitEditing={handleSearchSubmit}
@@ -1960,7 +2490,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   disabled={locationLoading}
                 >
                   <ThemedText style={styles.mapButtonText}>
-                    {locationLoading ? 'جاري التحميل...' : 'عرض الخريطة 🗺️'}
+                    {locationLoading ? 'Loading...' : 'Show Map 🗺️'}
                   </ThemedText>
                 </Pressable>
                 <Pressable
@@ -1968,7 +2498,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   onPress={handlePlanTrip}
                 >
                   <ThemedText style={styles.planButtonText}>
-                    بدء التخطيط 🧭
+                    Start Planning 🧭
                   </ThemedText>
                 </Pressable>
               </View>
@@ -1980,7 +2510,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                 disabled={citiesLoading}
               >
                 <ThemedText style={styles.selectCityButtonText}>
-                  {citiesLoading ? 'جاري التحميل...' : '🏙️ هل تريد الذهاب إلى مدينة معينة في هذه الدولة؟'}
+                  {citiesLoading ? 'Loading...' : '🏙️ Do you want to go to a specific city in this country?'}
                 </ThemedText>
               </Pressable>
             </View>
@@ -1996,10 +2526,10 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
             ) : countryAttractions.length > 0 ? (
               <View style={styles.attractionsContainer}>
                 <ThemedText type="defaultSemiBold" style={styles.attractionsTitle}>
-                  ✨ لماذا تسافر إلى {selectedCountry.name}؟
+                  ✨ Why travel to {selectedCountry.name}?
                 </ThemedText>
                 <ThemedText style={styles.attractionsSubtitle}>
-                  اكتشف ما يجعل هذه الوجهة مميزة
+                  Discover what makes this destination special
                 </ThemedText>
                 <View style={styles.attractionsList}>
                   {countryAttractions.map((attraction, index) => (
@@ -2027,13 +2557,13 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
           <View style={styles.mapContainer}>
             <View style={styles.mapHeader}>
               <ThemedText type="defaultSemiBold" style={styles.mapTitle}>
-                الخريطة: {showCitiesMap && selectedCountry
-                  ? `مدن ${selectedCountry.name}`
+                Map: {showCitiesMap && selectedCountry
+                  ? `Cities of ${selectedCountry.name}`
                   : selectedCountry 
-                    ? `من موقعك إلى ${selectedCountry.name}`
+                    ? `From your location to ${selectedCountry.name}`
                     : showNearbyPlaces 
-                      ? 'الأماكن القريبة منك'
-                      : 'الخريطة'}
+                      ? 'Nearby Places'
+                      : 'Map'}
               </ThemedText>
               <Pressable
                 style={styles.closeMapButton}
@@ -2052,7 +2582,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
               <View style={styles.mapLoadingContainer}>
                 <ActivityIndicator size="large" />
                 <ThemedText style={styles.mapLoadingText}>
-                  {citiesLoading ? 'جاري تحميل المدن...' : 'جاري تحميل الخريطة...'}
+                  {citiesLoading ? 'Loading cities...' : 'Loading map...'}
                 </ThemedText>
               </View>
             ) : (currentLocation || (showCitiesMap && countryCities.length > 0)) ? (
@@ -2072,7 +2602,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                     latitude: countryCities[0].latitude,
                     longitude: countryCities[0].longitude,
                   } : currentLocation || { latitude: 0, longitude: 0 })}
-                  destinationName={selectedCity?.name || selectedCountry?.name || selectedPlace?.name || 'اختر مكاناً'}
+                  destinationName={selectedCity?.name || selectedCountry?.name || selectedPlace?.name || 'Select a place'}
                   routeCoordinates={routeCoordinates}
                   nearbyPlaces={nearbyPlaces}
                   selectedPlace={selectedPlace}
@@ -2087,20 +2617,31 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                 {/* معلومات المدينة المختارة - صندوق مشابه لصندوق الدولة */}
                 {selectedCity && (
                   <View style={styles.cityAttractionsContainer}>
+                    <View style={styles.selectedCityHeader}>
+                      <ThemedText type="defaultSemiBold" style={styles.selectedCityTitle}>
+                        🏙️ {selectedCity.name}
+                      </ThemedText>
+                      {selectedCountry && (
+                        <ThemedText style={styles.selectedCityCountry}>
+                          {selectedCountry.name}
+                        </ThemedText>
+                      )}
+                    </View>
+                    
                     {cityAttractionsLoading ? (
                       <>
                         <ActivityIndicator size="small" />
                         <ThemedText style={styles.cityAttractionsLoadingText}>
-                          جاري تحميل المعلومات...
+                          Loading information...
                         </ThemedText>
                       </>
                     ) : cityAttractions.length > 0 ? (
                       <>
                         <ThemedText type="defaultSemiBold" style={styles.cityAttractionsTitle}>
-                          ✨ لماذا تسافر إلى {selectedCity.name}؟
+                          ✨ Why travel to {selectedCity.name}?
                         </ThemedText>
                         <ThemedText style={styles.cityAttractionsSubtitle}>
-                          اكتشف ما يجعل هذه المدينة مميزة
+                          Discover what makes this city special
                         </ThemedText>
                         <View style={styles.cityAttractionsList}>
                           {cityAttractions.map((attraction, index) => (
@@ -2117,14 +2658,28 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                           ))}
                         </View>
                       </>
-                    ) : null}
+                    ) : (
+                      <ThemedText style={styles.cityAttractionsSubtitle}>
+                        Select this city to start planning your trip
+                      </ThemedText>
+                    )}
+                    
+                    {/* زر Start Planning للمدينة */}
+                    <Pressable
+                      style={styles.planCityButton}
+                      onPress={handlePlanTripFromCity}
+                    >
+                      <ThemedText style={styles.planCityButtonText}>
+                        Start Planning 🧭
+                      </ThemedText>
+                    </Pressable>
                   </View>
                 )}
                 
                 {/* اختيار طريقة التنقل - فقط للأماكن القريبة */}
                 {selectedPlace && (
                   <View style={styles.travelModeContainer}>
-                    <ThemedText style={styles.travelModeLabel}>طريقة التنقل:</ThemedText>
+                    <ThemedText style={styles.travelModeLabel}>Travel Mode:</ThemedText>
                     <View style={styles.travelModeButtons}>
                       <Pressable
                         style={[
@@ -2144,7 +2699,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                             travelMode === 'walking' && styles.travelModeButtonTextActive,
                           ]}
                         >
-                          🚶 مشياً
+                          🚶 Walking
                         </ThemedText>
                       </Pressable>
                       <Pressable
@@ -2165,7 +2720,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                             travelMode === 'driving' && styles.travelModeButtonTextActive,
                           ]}
                         >
-                          🚗 بالسيارة
+                          🚗 Driving
                         </ThemedText>
                       </Pressable>
                     </View>
@@ -2177,20 +2732,20 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   <View style={styles.routeInfoContainer}>
                     <ThemedText type="defaultSemiBold" style={styles.routeInfoTitle}>
                       {isNavigating 
-                        ? `جاري المتابعة... ${travelMode === 'walking' ? '🚶' : '🚗'}` 
-                        : 'معلومات المسار'}
+                        ? `Navigating... ${travelMode === 'walking' ? '🚶' : '🚗'}` 
+                        : 'Route Information'}
                     </ThemedText>
                     
                     {/* المسافة المتبقية أثناء المتابعة */}
                     {isNavigating && remainingDistance !== null && routeInfo && (
                       <View style={styles.navigationStatus}>
                         <ThemedText style={styles.remainingDistanceText}>
-                          المسافة المتبقية: {remainingDistance < 1 
-                            ? `${Math.round(remainingDistance * 1000)} متر` 
-                            : `${Math.round(remainingDistance * 10) / 10} كم`}
+                          Remaining Distance: {remainingDistance < 1 
+                            ? `${Math.round(remainingDistance * 1000)} meters` 
+                            : `${Math.round(remainingDistance * 10) / 10} km`}
                         </ThemedText>
                         <ThemedText style={styles.remainingTimeText}>
-                          الوقت المتوقع: {
+                          Estimated Time: {
                             (() => {
                               // حساب الوقت بناءً على نسبة المسافة المتبقية من المسافة الكلية
                               const totalDistance = routeInfo.distance;
@@ -2204,7 +2759,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                               // الوقت المتوقع = نسبة المسافة * الوقت الكلي
                               const estimatedTime = Math.max(1, Math.round(totalTime * distanceRatio));
                               
-                              return `${estimatedTime} دقيقة`;
+                              return `${estimatedTime} minutes`;
                             })()
                           }
                         </ThemedText>
@@ -2213,33 +2768,33 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                     
                     <View style={styles.routeInfoRow}>
                       <View style={styles.routeInfoItem}>
-                        <ThemedText style={styles.routeInfoLabel}>المسافة</ThemedText>
+                        <ThemedText style={styles.routeInfoLabel}>Distance</ThemedText>
                         <ThemedText style={styles.routeInfoValue}>
-                          {routeInfo.distance} كم
+                          {routeInfo.distance} km
                         </ThemedText>
                       </View>
                       <View style={[
                         styles.routeInfoItem,
                         travelMode === 'walking' && styles.routeInfoItemActive,
                       ]}>
-                        <ThemedText style={styles.routeInfoLabel}>⏱️ مشياً</ThemedText>
+                        <ThemedText style={styles.routeInfoLabel}>⏱️ Walking</ThemedText>
                         <ThemedText style={[
                           styles.routeInfoValue,
                           travelMode === 'walking' && styles.routeInfoValueActive,
                         ]}>
-                          {routeInfo.durationWalking} دقيقة
+                          {routeInfo.durationWalking} min
                         </ThemedText>
                       </View>
                       <View style={[
                         styles.routeInfoItem,
                         travelMode === 'driving' && styles.routeInfoItemActive,
                       ]}>
-                        <ThemedText style={styles.routeInfoLabel}>🚗 بالسيارة</ThemedText>
+                        <ThemedText style={styles.routeInfoLabel}>🚗 Driving</ThemedText>
                         <ThemedText style={[
                           styles.routeInfoValue,
                           travelMode === 'driving' && styles.routeInfoValueActive,
                         ]}>
-                          {routeInfo.durationDriving} دقيقة
+                          {routeInfo.durationDriving} min
                         </ThemedText>
                       </View>
                     </View>
@@ -2254,10 +2809,10 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                     >
                       <ThemedText style={styles.navigationButtonText}>
                         {isNavigating 
-                          ? '⏹️ إيقاف المتابعة' 
+                          ? '⏹️ Stop Navigation' 
                           : travelMode === 'walking' 
-                            ? '🚶 بدء المتابعة مشياً' 
-                            : '🚗 بدء المتابعة بالسيارة'}
+                            ? '🚶 Start Navigation (Walking)' 
+                            : '🚗 Start Navigation (Driving)'}
                       </ThemedText>
                     </Pressable>
                   </View>
@@ -2266,7 +2821,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
             ) : (
               <View style={styles.mapErrorContainer}>
                 <ThemedText style={styles.mapErrorText}>
-                  لم يتم العثور على الموقع
+                  Location not found
                 </ThemedText>
               </View>
             )}
@@ -2276,51 +2831,114 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
         {/* قائمة الدول المفلترة - نخفيها عند عرض الأماكن القريبة */}
         {!showNearbyPlaces && (
           <>
-            {search.length > 0 && (
-              <ThemedText style={styles.sectionLabel}>
-                نتائج البحث ({filtered.length})
-              </ThemedText>
-            )}
-
-            {filtered.length === 0 && search.length > 0 ? (
-              <ThemedText style={styles.noResults}>
-                لم يتم العثور على نتائج للبحث "{search}"
-              </ThemedText>
-            ) : (
-              filtered.map((item) => (
+            {error && countries.length === 0 && (
+              <View style={styles.emptyState}>
+                <ThemedText style={styles.emptyStateTitle}>
+                  Error loading countries
+                </ThemedText>
+                <ThemedText style={styles.emptyStateText}>
+                  {error}
+                </ThemedText>
                 <Pressable
-                  key={item._id}
-                  style={[
-                    styles.countryCard,
-                    selectedCountry?._id === item._id && styles.countryCardSelected,
-                  ]}
-                  onPress={() => handleSelectCountry(item)}
+                  style={styles.retryButton}
+                  onPress={() => {
+                    const load = async () => {
+                      try {
+                        setLoading(true);
+                        setError(null);
+                        const data = await fetchCountries();
+                        if (data && Array.isArray(data)) {
+                          setCountries(data);
+                        }
+                      } catch (err: any) {
+                        setError(`Failed to load: ${err?.message || 'Unknown error'}`);
+                      } finally {
+                        setLoading(false);
+                      }
+                    };
+                    load();
+                  }}
                 >
-                  <ThemedText style={styles.flag}>{item.flag ?? '🌍'}</ThemedText>
-                  <View style={styles.countryTextContainer}>
-                    <ThemedText type="defaultSemiBold" style={styles.countryName}>
-                      {item.name}
-                    </ThemedText>
-                    <ThemedText style={styles.countryDetails}>
-                      {item.region ?? '—'} · {item.mainLanguage ?? '—'} ·{' '}
-                      {item.currency ?? '—'}
-                    </ThemedText>
-                  </View>
+                  <ThemedText style={styles.retryButtonText}>Retry</ThemedText>
                 </Pressable>
-              ))
+              </View>
             )}
-
-            {/* إذا لم يكن هناك بحث، نعرض بعض الدول المقترحة */}
-            {search.length === 0 && (
+            {!error && search.length > 0 ? (
               <>
                 <ThemedText style={styles.sectionLabel}>
-                  ابدأ بالبحث عن دولة أو منطقة
+                  Search Results ({filtered.length})
+                </ThemedText>
+                {filtered.length === 0 ? (
+                  <ThemedText style={styles.noResults}>
+                    No results found for "{search}"
+                  </ThemedText>
+                ) : (
+                  filtered.map((item) => (
+                    <Pressable
+                      key={item._id}
+                      style={[
+                        styles.countryCard,
+                        selectedCountry?._id === item._id && styles.countryCardSelected,
+                      ]}
+                      onPress={() => handleSelectCountry(item)}
+                    >
+                      <ThemedText style={styles.flag}>{item.flag ?? '🌍'}</ThemedText>
+                      <View style={styles.countryTextContainer}>
+                        <ThemedText type="defaultSemiBold" style={styles.countryName}>
+                          {item.name}
+                        </ThemedText>
+                        <ThemedText style={styles.countryDetails}>
+                          {item.region ?? '—'} · {item.mainLanguage ?? '—'} ·{' '}
+                          {item.currency ?? '—'}
+                        </ThemedText>
+                      </View>
+                    </Pressable>
+                  ))
+                )}
+              </>
+            ) : !error ? (
+              <>
+                <ThemedText style={styles.sectionLabel}>
+                  All Countries ({countries.length})
                 </ThemedText>
                 <ThemedText style={styles.hintText}>
-                  اكتب اسم الدولة أو الكود (مثل: TR, IL, GR) أو المنطقة (مثل: Europe, Asia)
+                  Select a country to start planning your trip
                 </ThemedText>
+                {/* عرض جميع الدول مع إمكانية التمرير */}
+                {loading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#1f9d55" />
+                    <ThemedText style={styles.loadingText}>Loading countries...</ThemedText>
+                  </View>
+                ) : countries.length > 0 ? (
+                  countries.map((item) => (
+                    <Pressable
+                      key={item._id}
+                      style={[
+                        styles.countryCard,
+                        selectedCountry?._id === item._id && styles.countryCardSelected,
+                      ]}
+                      onPress={() => handleSelectCountry(item)}
+                    >
+                      <ThemedText style={styles.flag}>{item.flag ?? '🌍'}</ThemedText>
+                      <View style={styles.countryTextContainer}>
+                        <ThemedText type="defaultSemiBold" style={styles.countryName}>
+                          {item.name}
+                        </ThemedText>
+                        <ThemedText style={styles.countryDetails}>
+                          {item.region ?? '—'} · {item.mainLanguage ?? '—'} ·{' '}
+                          {item.currency ?? '—'}
+                        </ThemedText>
+                      </View>
+                    </Pressable>
+                  ))
+                ) : (
+                  <ThemedText style={styles.noResults}>
+                    No countries available
+                  </ThemedText>
+                )}
               </>
-            )}
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -2336,7 +2954,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <ThemedText type="defaultSemiBold" style={styles.modalTitle}>
-                {placeDetails?.name || 'تفاصيل المكان'}
+                {placeDetails?.name || 'Place Details'}
               </ThemedText>
               <Pressable
                 style={styles.modalCloseButton}
@@ -2351,7 +2969,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                 <View style={styles.modalLoadingContainer}>
                   <ActivityIndicator size="large" />
                   <ThemedText style={styles.modalLoadingText}>
-                    جاري تحميل التفاصيل...
+                    Loading details...
                   </ThemedText>
                 </View>
               ) : placeDetails ? (
@@ -2360,7 +2978,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   {placeDetails.rating !== undefined && (
                     <View style={styles.modalSection}>
                       <ThemedText type="defaultSemiBold" style={styles.modalSectionTitle}>
-                        ⭐ التقييم
+                        ⭐ Rating
                       </ThemedText>
                       <ThemedText style={styles.modalSectionValue}>
                         {placeDetails.rating.toFixed(1)} / 5.0
@@ -2372,10 +2990,10 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   {placeDetails.priceLevel !== undefined && (
                     <View style={styles.modalSection}>
                       <ThemedText type="defaultSemiBold" style={styles.modalSectionTitle}>
-                        💰 مستوى الأسعار
+                        💰 Price Level
                       </ThemedText>
                       <ThemedText style={styles.modalSectionValue}>
-                        {'$'.repeat(placeDetails.priceLevel)} ({placeDetails.priceLevel === 1 ? 'رخيص' : placeDetails.priceLevel === 2 ? 'متوسط' : placeDetails.priceLevel === 3 ? 'غالي' : 'فاخر'})
+                        {'$'.repeat(placeDetails.priceLevel)} ({placeDetails.priceLevel === 1 ? 'Inexpensive' : placeDetails.priceLevel === 2 ? 'Moderate' : placeDetails.priceLevel === 3 ? 'Expensive' : 'Very Expensive'})
                       </ThemedText>
                     </View>
                   )}
@@ -2384,7 +3002,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   {placeDetails.address && (
                     <View style={styles.modalSection}>
                       <ThemedText type="defaultSemiBold" style={styles.modalSectionTitle}>
-                        📍 العنوان
+                        📍 Address
                       </ThemedText>
                       <ThemedText style={styles.modalSectionValue}>
                         {placeDetails.address}
@@ -2396,7 +3014,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   {placeDetails.phone && (
                     <View style={styles.modalSection}>
                       <ThemedText type="defaultSemiBold" style={styles.modalSectionTitle}>
-                        📞 الهاتف
+                        📞 Phone
                       </ThemedText>
                       <Pressable
                         onPress={() => {
@@ -2414,7 +3032,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   {placeDetails.website && (
                     <View style={styles.modalSection}>
                       <ThemedText type="defaultSemiBold" style={styles.modalSectionTitle}>
-                        🌐 الموقع الإلكتروني
+                        🌐 Website
                       </ThemedText>
                       <Pressable
                         onPress={() => {
@@ -2434,7 +3052,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   {placeDetails.openingHours && placeDetails.openingHours.length > 0 && (
                     <View style={styles.modalSection}>
                       <ThemedText type="defaultSemiBold" style={styles.modalSectionTitle}>
-                        🕐 أوقات العمل
+                        🕐 Opening Hours
                       </ThemedText>
                       {placeDetails.openingHours.map((hour, index) => (
                         <ThemedText key={index} style={styles.modalSectionValue}>
@@ -2448,7 +3066,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                   {placeDetails.reviews && placeDetails.reviews.length > 0 && (
                     <View style={styles.modalSection}>
                       <ThemedText type="defaultSemiBold" style={styles.modalSectionTitle}>
-                        💬 التقييمات
+                        💬 Reviews
                       </ThemedText>
                       {placeDetails.reviews.map((review, index) => (
                         <View key={index} style={styles.reviewCard}>
@@ -2470,7 +3088,7 @@ const handleMapLongPress = async (coordinate: { latitude: number; longitude: num
                 </>
               ) : (
                 <ThemedText style={styles.modalNoData}>
-                  لا توجد معلومات متاحة
+                  No information available
                 </ThemedText>
               )}
             </ScrollView>
@@ -3106,6 +3724,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  selectedCityHeader: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#fbbf24',
+  },
+  selectedCityTitle: {
+    fontSize: 20,
+    color: '#92400e',
+    marginBottom: 4,
+    fontWeight: '700',
+  },
+  selectedCityCountry: {
+    fontSize: 14,
+    color: '#a16207',
+    opacity: 0.8,
+  },
+  planCityButton: {
+    marginTop: 16,
+    backgroundColor: '#1f9d55',
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    shadowColor: '#1f9d55',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  planCityButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+  },
   cityAttractionsContainer: {
     marginTop: 12,
     marginBottom: 20,
@@ -3261,6 +3914,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#4b5563',
     lineHeight: 18,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    marginTop: 40,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#1f9d55',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    gap: 10,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#6b7280',
   },
   photosContainer: {
     marginTop: 8,

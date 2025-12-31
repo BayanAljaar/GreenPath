@@ -12,8 +12,8 @@ const getApiBaseUrl = () => {
     return "http://localhost:4001";
   }
   // على الأجهزة المحمولة، استخدم IP address للكمبيوتر
-  // غيّر هذا إلى IP address لجهازك (مثال: 192.168.1.100 أو 172.19.43.9)
-  return "http://172.19.43.9:4001"; // غيّر هذا إلى IP address لجهازك
+  // غيّر هذا إلى IP address لجهازك (مثال: 192.168.1.100 أو 172.18.53.94)
+  return "http://172.18.50.111:4001"; // IP address الحالي للكمبيوتر
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -22,6 +22,7 @@ console.log(">>> API_BASE_URL (inside apiClient) =", API_BASE_URL, "Platform:", 
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 30000, // 30 seconds timeout
 });
 
 // מודל בסיסי למדינה
@@ -38,17 +39,27 @@ export interface Country {
 // בקשה שמביאה את כל המדינות
 export async function fetchCountries(): Promise<Country[]> {
   try {
-    console.log(">>> calling /countries ...");
-    const res = await api.get<Country[]>("/countries");
+    console.log(">>> calling /countries from:", API_BASE_URL);
+    const res = await api.get<Country[]>("/countries", {
+      timeout: 30000, // 30 seconds
+    });
     console.log(">>> /countries status =", res.status, "len =", res.data.length);
     return res.data;
   } catch (err: any) {
     console.error(
       ">>> axios error in fetchCountries:",
       err?.message,
+      err?.code,
       err?.response?.status,
-      err?.response?.data
+      err?.response?.data,
+      "API_BASE_URL:", API_BASE_URL
     );
+    
+    // إذا كان الخطأ timeout، أضف رسالة مفيدة
+    if (err?.code === 'ECONNABORTED' || err?.message?.includes('timeout')) {
+      console.error(">>> Timeout error - Make sure the API server is running on", API_BASE_URL);
+    }
+    
     throw err;
   }
 }
@@ -72,6 +83,20 @@ export async function fetchCitiesByCountry(countryCode: string): Promise<City[]>
   });
   return res.data;
 }
+// מודל טיול
+export interface Trip {
+  _id: string;
+  userName: string;
+  countryCode: string;
+  countryName: string;
+  title: string;
+  startDate?: string;
+  endDate?: string;
+  style?: string;
+  notes?: string;
+  createdAt: string;
+}
+
 // למעלה ליד ה־types:
 export type TripPayload = {
   userName: string;
@@ -94,6 +119,20 @@ export type SaveTripPayload = {
   style?: string;
   notes?: string;
 };
+
+// جلب جميع رحلات المستخدم
+export async function fetchUserTrips(userName: string): Promise<Trip[]> {
+  try {
+    const res = await api.get<{ ok: boolean; trips: Trip[] }>(`/trips/user/${userName}`);
+    if (res.data.ok && res.data.trips) {
+      return res.data.trips;
+    }
+    return [];
+  } catch (err: any) {
+    console.error(">>> axios error in fetchUserTrips:", err?.message);
+    throw err;
+  }
+}
 
 // ---------- AUTH ----------
 
@@ -141,13 +180,34 @@ export async function saveTrip(payload: SaveTripPayload) {
     },
     body: JSON.stringify(payload),
   });
-
-
+  
   if (!res.ok) {
-    const text = await res.text(); // כדי לראות שגיאה אמיתית בלוג
-    console.error("saveTrip failed:", res.status, text);
-    throw new Error(`Failed to save trip: ${res.status}`);
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.message || "Failed to save trip");
   }
+  
+  const data = await res.json();
+  return data.trip; // إرجاع الرحلة المحفوظة مع _id
+}
 
-  return res.json();
+// تحديث رحلة موجودة
+export async function updateTrip(
+  tripId: string,
+  updates: {
+    startDate?: string;
+    endDate?: string;
+    style?: string;
+    notes?: string;
+  }
+): Promise<Trip> {
+  try {
+    const res = await api.put<{ ok: boolean; trip: Trip }>(`/trips/${tripId}`, updates);
+    if (res.data.ok && res.data.trip) {
+      return res.data.trip;
+    }
+    throw new Error("Failed to update trip");
+  } catch (err: any) {
+    console.error(">>> axios error in updateTrip:", err?.message);
+    throw err;
+  }
 }

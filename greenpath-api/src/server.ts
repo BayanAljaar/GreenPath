@@ -13,7 +13,12 @@ import authRouter from "./routes/auth";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+// تحسين CORS للسماح بالاتصالات من التلفون
+app.use(cors({
+  origin: '*', // في الإنتاج، حدد المنافذ المسموحة
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
