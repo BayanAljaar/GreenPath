@@ -9,9 +9,11 @@ import countriesRouter from "./routes/countries";
 
 import tripsRouter from "./routes/trips";   // ⭐ חדש
 import authRouter from "./routes/auth";
+import communicationRoutes from "./routes/communicationRoutes";
+
 
 dotenv.config();
-
+console.log("OPENAI key loaded:", process.env.OPENAI_API_KEY ? "YES" : "NO");
 const app = express();
 //<<<<<<< HEAD
 const PORT = process.env.PORT || 4001;
@@ -45,6 +47,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 /// 2. ثم الـ CORS (إذا كنتِ تستخدمينه)
 app.use(cors());
 app.use("/auth", authRouter);
+app.use("/api/communication", communicationRoutes);
 
 if (!MONGO) {
   console.error("MONGODB_URI is missing in .env");

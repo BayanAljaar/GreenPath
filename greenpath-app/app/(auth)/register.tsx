@@ -29,21 +29,22 @@ export default function RegisterScreen() {
       // 🏆 الاتصال الحقيقي بمسار /auth/register
       const newUserResponse = await registerUser({
         fullName,
-        userName, // تمرير اسم المستخدم
+        userName, 
         email,
         password,
       });
 
       // ✅ نجاح التسجيل: حفظ المستخدم في السياق والانتقال
       // 🏆 حفظ البيانات الحقيقية (fullName, userName, token)
-      const userToSave = {
-        name: newUserResponse.fullName, 
-        userName: newUserResponse.userName,
-        token: newUserResponse.token, // يُفترض أنه تم إرجاعه من الخادم
-      };
+   const userToSave = {
+  id: newUserResponse.id,
+  fullName: newUserResponse.fullName,
+  userName: newUserResponse.userName,
+  email: newUserResponse.email,
+  token: newUserResponse.token,
+};
 
-      setUser(userToSave); // يتم حفظه في Context و AsyncStorage
-      
+setUser(userToSave);
       router.replace("/(tabs)"); // الانتقال إلى الصفحة الرئيسية
       
     }catch (error: any) {

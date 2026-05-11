@@ -7,7 +7,7 @@ import { Platform } from "react-native";
 //const API_BASE_URL = "http://localhost:4001";
 //const API_BASE_URL = "http://http://10.0.0.16::4001";
 // الرابط الجديد الذي حصلتِ عليه من ngrok
-const API_BASE_URL = "https://nonvehement-crestless-aaliyah.ngrok-free.dev";
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 console.log(">>> API_BASE_URL (inside apiClient) =", API_BASE_URL, "Platform:", Platform.OS);
 // المسار الكامل للـ API
 //const API_URL = `${API_BASE_URL}/api`;
@@ -127,7 +127,6 @@ export async function fetchUserTrips(userName: string): Promise<Trip[]> {
 // ---------- AUTH ----------
 
 export type RegisterPayload = {
-  id: string;
   fullName: string;
   userName: string;
   email: string;

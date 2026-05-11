@@ -233,7 +233,7 @@ export default function HomeScreen() {
   try {
     //const URI = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;   
     
-    const GROQ_API_KEY = "PRIVATE_CODE"; // يبدأ بـ gsk_
+    const GROQ_API_KEY = "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"; // يبدأ بـ gsk_
 
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
