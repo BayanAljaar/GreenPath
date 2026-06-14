@@ -1,4 +1,7 @@
 // app/(tabs)/index.tsx
+// app/(tabs)/index.tsx
+
+// app/(tabs)/index.tsx
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -229,12 +232,16 @@ export default function HomeScreen() {
                 Don't based on weather and seasons because we explain it on bookingIntelligence part!",
             }
         Response must be ONLY JSON.`;
+ 
 
   try {
     //const URI = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;   
-    
-    const GROQ_API_KEY = "PRIVATE_CODE"; // يبدأ بـ gsk_
-
+    //const GROQ_API_KEY = "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"; // يبدأ بـ gsk_
+  //nst GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY;
+  //10.5
+           
+    const GROQ_API_KEY = "MY_GROQ_API_KEY";
+  //10.5
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
