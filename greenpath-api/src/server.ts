@@ -10,13 +10,17 @@ import countriesRouter from "./routes/countries";
 import tripsRouter from "./routes/trips";   // ⭐ חדש
 import authRouter from "./routes/auth";
 
+import postsRouter from "./routes/posts"; // 1. استيراد الملف الجديد11.5 
+
 dotenv.config();
 
 const app = express();
 //<<<<<<< HEAD
 const PORT = process.env.PORT || 4001;
 const MONGO = process.env.MONGODB_URI as string;
-
+// ارفعي الحد إلى 50 ميجابايت مثلاً بدلاً من 1 ميجابايت الافتراضي
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 //ME
 //app.use(cors());
 //=======
@@ -38,10 +42,9 @@ app.use("/cities", citiesRouter);
 app.use("/countries", countriesRouter);
 app.use("/cities", citiesRouter);
 app.use("/trips", tripsRouter);            // ⭐ חדש
+app.use("/posts", postsRouter); // 2. تفعيل مسار المنشورات11.5 
 
-// ارفعي الحد إلى 50 ميجابايت مثلاً بدلاً من 1 ميجابايت الافتراضي
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
 /// 2. ثم الـ CORS (إذا كنتِ تستخدمينه)
 app.use(cors());
 app.use("/auth", authRouter);
