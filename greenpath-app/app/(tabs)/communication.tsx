@@ -77,9 +77,9 @@ const initialConversations: Conversation[] = [
 ];
 
 export default function CommunicationScreen() {
-  const [conversations, setConversations] =
-    useState<Conversation[]>(initialConversations);
-  const [selectedConversationId, setSelectedConversationId] = useState("1");
+ const [conversations, setConversations] = useState<Conversation[]>([]);
+const [selectedConversationId, setSelectedConversationId] =
+  useState<string | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
 
   const [myLanguage, setMyLanguage] = useState<Language>(languages[0]);

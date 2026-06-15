@@ -4,12 +4,13 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "ignoreDeprecations": "6.0",
-    "rootDir": "./src",
+    "rootDir": "./",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": false,
     "skipLibCheck": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "types": ["node", "jest"]
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }
