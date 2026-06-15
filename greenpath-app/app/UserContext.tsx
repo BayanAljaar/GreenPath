@@ -80,7 +80,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
 
-  const logout = async () => {
+  {/*st logout = async () => {
       // 1. مسح الحالة والتخزين
       setUserState(null);
       await AsyncStorage.clear(); 
@@ -91,7 +91,16 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         router.replace('/(auth)/landing');
       }
-  };
+  };*/}
+
+  const logout = async () => {
+    // 1. مسح الحالة والتخزين
+    setUserState(null);
+    await AsyncStorage.clear(); 
+    
+    // 2. التوجيه الصحيح للموبايل (استخدام router فقط)
+    router.replace('/(auth)/landing');
+};
 
   const deleteMyAccount = async () => {
     if (!user) return;

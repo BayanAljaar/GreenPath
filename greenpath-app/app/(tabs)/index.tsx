@@ -1,4 +1,7 @@
 // app/(tabs)/index.tsx
+// app/(tabs)/index.tsx
+
+// app/(tabs)/index.tsx
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -229,6 +232,7 @@ export default function HomeScreen() {
                 Don't based on weather and seasons because we explain it on bookingIntelligence part!",
             }
         Response must be ONLY JSON.`;
+ 
 
   try {
     //const URI = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;   

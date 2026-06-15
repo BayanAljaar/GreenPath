@@ -24,6 +24,8 @@ export const api = axios.create({
 
 });
 
+
+
 // מודל בסיסי למדינה
 export interface Country {
   _id: string;
@@ -73,6 +75,7 @@ export async function fetchCitiesByCountry(countryCode: string): Promise<City[]>
   });
   return res.data;
 }
+
 // מודל טיול
 export interface Trip {
   _id: string;
@@ -127,6 +130,7 @@ export async function fetchUserTrips(userName: string): Promise<Trip[]> {
 // ---------- AUTH ----------
 
 export type RegisterPayload = {
+  id?: string;
   fullName: string;
   userName: string;
   email: string;
@@ -222,4 +226,45 @@ export async function loginUser(payload: any) {
   // نرسل userNameOrEmail و password كما يتوقع السيرفر في ملف auth.ts
   const res = await api.post("/auth/login", payload); 
   return res.data; // سيعيد { ok: true, user: {...} } أو { ok: false, message: "..." }
+}
+
+//11.5-add post
+// أضف هذه الأكواد في ملف apiClient.ts
+
+// 1. جلب كل المنشورات من قاعدة البيانات
+export async function fetchAllPosts() {
+  try {
+    const res = await api.get("/posts"); // افترضنا أن المسار هو /posts
+    // إذا كان السيرفر يعيد المصفوفة مباشرة أو داخل كائن
+    return Array.isArray(res.data) ? res.data : (res.data.posts || []);
+      //14.30  return res.data; 
+  } catch (err: any) { // أضيفي : any هنا
+    console.error("Error fetching posts:", err?.message);
+    return [];
+  }
+}
+
+// 2. إنشاء منشور جديد في قاعدة البيانات
+export async function createPost(postData: any) {
+  try {
+    const res = await api.post("/posts", postData);
+    return res.data;
+  } catch (err: any) { // أضيفي : any هنا
+    console.error("Error creating post:", err?.message);
+    throw err;
+  }
+}
+
+//11.5
+
+// services/apiClient.ts
+
+export async function deletePost(postId: string) {
+  try {
+    const res = await api.delete(`/posts/${postId}`);
+    return res.data;
+  } catch (err: any) {
+    console.error("Error in deletePost API:", err?.message);
+    throw err;
+  }
 }

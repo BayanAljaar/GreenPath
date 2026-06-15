@@ -7,6 +7,7 @@ import { ThemedText } from "../../components/themed-text";
 import { ThemedView } from "../../components/themed-view";
 import { useUser } from "../UserContext";
 import { registerUser } from "../../services/apiClient"; // ⬅️ استيراد الدالة الجديدة
+// نقوم باستخدام ../ للعودة من مجلد (auth) إلى مجلد app الرئيسي
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -36,13 +37,11 @@ export default function RegisterScreen() {
 
       // ✅ نجاح التسجيل: حفظ المستخدم في السياق والانتقال
       // 🏆 حفظ البيانات الحقيقية (fullName, userName, token)
-   const userToSave = {
-  id: newUserResponse.id,
-  fullName: newUserResponse.fullName,
-  userName: newUserResponse.userName,
-  email: newUserResponse.email,
-  token: newUserResponse.token,
-};
+      const userToSave = {
+        name: newUserResponse.fullName, 
+        userName: newUserResponse.userName,
+        token: newUserResponse.token, // يُفترض أنه تم إرجاعه من الخادم
+      };
 
 setUser(userToSave);
       router.replace("/(tabs)"); // الانتقال إلى الصفحة الرئيسية
@@ -61,7 +60,7 @@ setUser(userToSave);
   return (
     <ThemedView style={styles.screen}>
       <ThemedText type="title" style={styles.title}>
-        יצירת חשבון GreenPath
+        Creating GreenPath Account
       </ThemedText>
 
       <View style={styles.form}>
@@ -102,13 +101,13 @@ setUser(userToSave);
           disabled={loading}
         >
           <ThemedText style={styles.submitText}>
-            {loading ? "جاري الإرسال..." : "הרשמה והמשך"}
+            {loading ? "Sending..." : "Save and Continue "}
           </ThemedText>
         </Pressable>
 
         <Pressable onPress={() => router.push("/(auth)/login")}>
           <ThemedText style={styles.linkText}>
-            יש לך כבר חשבון? כניסה
+            Already have a account ? LOGIN...
           </ThemedText>
         </Pressable>
       </View>
@@ -126,7 +125,8 @@ const styles = StyleSheet.create({
   },
   title: {
     textAlign: "center",
-    marginBottom: 24,
+    marginBottom: 20,
+    color: "#668172ff",
   },
   form: {
     backgroundColor: "white",
@@ -143,7 +143,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: "#f8f9fa",
     color: "#333",
-    shadowColor: "#000",
+    shadowColor: "#145a1aff",
     shadowOffset: {
       width: 0,
       height: 1,
